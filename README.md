@@ -23,6 +23,8 @@ fine-tuning guidance, and proposed stack decisions.
   DGX Spark, with a host install fallback.
 - `Docker/VLLM-LiteLLM/` - Docker Compose stack for vLLM, LiteLLM, Open WebUI,
   and a small manager UI for switching local models and runtime settings.
+- `Docker/LlamaCPP/` - GGUF model inference stack with llama.cpp server, manager UI,
+  and LiteLLM integration for CPU/GPU hybrid inference.
 - `Docker/portal-proxy/` - Dynamic portal on port 80 that lists running
   containerized web apps published with `portal.*` labels.
 - `Docker/Portainer/` - Portainer container management UI with persistent
@@ -110,6 +112,30 @@ Set `LLM_DIR` in `.env` to the host directory containing downloaded Hugging Face
 models. The manager UI is exposed on `http://localhost:8088`, Open WebUI on
 `http://localhost:3000`, and the LiteLLM OpenAI-compatible API on
 `http://localhost:4000/v1`.
+
+### llama.cpp + Manager UI
+
+From `Docker/LlamaCPP/`:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+Open the manager UI at `http://localhost:8089/`. GGUF models are scanned from
+`~/LLMs/` by default. The manager provides profile-based configuration for
+context size, GPU offloading, threads, and other llama-server options. The
+runtime provides an OpenAI-compatible API on port 8081 and integrates with
+LiteLLM as the `local-llamacpp` backend.
+
+Download GGUF models:
+
+```bash
+pip install huggingface_hub
+huggingface-cli download unsloth/Qwen3.6-35B-A3B-MTP-GGUF \
+  UD-Q4_K_XL/Qwen3.6-35B-A3B-MTP-GGUF-UD-Q4_K_XL-*.gguf \
+  --local-dir ~/LLMs/unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
+```
 
 ## Contribution Notes
 

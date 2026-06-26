@@ -35,10 +35,17 @@
         </article>
       </div>
 
-      <section class="network-panel">
+      <section class="network-panel collapsed">
         <div class="panel-head">
           <h2>Network</h2>
-          <span id="tailscale-state" class="state-badge">Tailscale unknown</span>
+          <div class="panel-controls">
+            <span id="tailscale-state" class="state-badge">Tailscale unknown</span>
+            <button class="collapse-toggle" aria-label="Toggle network details" aria-expanded="false">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z"/>
+              </svg>
+            </button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -57,6 +64,9 @@
       <p>Start containers with <code>portal.enable=true</code> labels and they will appear here automatically.</p>
     </section>
   </main>
+  <footer class="footer">
+    <p>Développé par Mayné Philippe</p>
+  </footer>
   <script src="/app.js"></script>
 </body>
 </html>
