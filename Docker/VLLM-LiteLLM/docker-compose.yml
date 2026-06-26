@@ -1,4 +1,22 @@
 services:
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: litellm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LITELLM_POSTGRES_DB:-litellm}
+      POSTGRES_USER: ${LITELLM_POSTGRES_USER:-litellm}
+      POSTGRES_PASSWORD: ${LITELLM_POSTGRES_PASSWORD:-change-me-db-password}
+    volumes:
+      - litellm-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - llmnet
+
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm-proxy
@@ -7,10 +25,23 @@ services:
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-change-me}
       LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-change-me-salt}
+      UI_USERNAME: ${LITELLM_UI_USERNAME:-admin}
+      UI_PASSWORD: ${LITELLM_UI_PASSWORD:-change-me}
+      DATABASE_URL: postgresql://${LITELLM_POSTGRES_USER:-litellm}:${LITELLM_POSTGRES_PASSWORD:-change-me-db-password}@litellm-db:5432/${LITELLM_POSTGRES_DB:-litellm}
+    depends_on:
+      litellm-db:
+        condition: service_healthy
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     ports:
       - "${LITELLM_PORT:-4000}:4000"
+    labels:
+      portal.enable: "true"
+      portal.name: "LiteLLM API"
+      portal.description: "OpenAI-compatible proxy for local model runtimes"
+      portal.port: "${LITELLM_PORT:-4000}"
+      portal.icon: "api"
+      portal.order: "30"
     networks:
       - llmnet
 
@@ -27,6 +58,13 @@ services:
       - open-webui-data:/app/backend/data
     ports:
       - "${OPEN_WEBUI_PORT:-3000}:8080"
+    labels:
+      portal.enable: "true"
+      portal.name: "Open WebUI"
+      portal.description: "Chat interface for local models through LiteLLM"
+      portal.port: "${OPEN_WEBUI_PORT:-3000}"
+      portal.icon: "chat"
+      portal.order: "20"
     depends_on:
       - litellm
     networks:
@@ -54,6 +92,13 @@ services:
       - ${LLM_DIR}:/models:rw
     ports:
       - "${MANAGER_PORT:-8088}:8088"
+    labels:
+      portal.enable: "true"
+      portal.name: "vLLM Manager"
+      portal.description: "Start, stop, and tune the local vLLM runtime"
+      portal.port: "${MANAGER_PORT:-8088}"
+      portal.icon: "settings"
+      portal.order: "40"
     networks:
       - llmnet
 
@@ -63,3 +108,4 @@ networks:
 
 volumes:
   open-webui-data:
+  litellm-db-data:

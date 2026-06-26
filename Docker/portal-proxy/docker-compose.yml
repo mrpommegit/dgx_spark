@@ -1,0 +1,19 @@
+services:
+  portal:
+    build:
+      context: .
+    image: dgx-spark-portal:local
+    container_name: dgx-portal
+    restart: unless-stopped
+    working_dir: /app
+    command: ["python", "server.py"]
+    environment:
+      PORTAL_TITLE: ${PORTAL_TITLE:-DGX Spark Portal}
+      PORTAL_REFRESH_SECONDS: ${PORTAL_REFRESH_SECONDS:-5}
+      PORTAL_HOST_ROOT: /host
+      PORTAL_INTERNAL_PORT: ${PORTAL_PORT:-80}
+    network_mode: host
+    volumes:
+      - ./portal:/app:ro
+      - /:/host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
