@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DGX Spark Portal</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <h1 id="title">DGX Spark Portal</h1>
+        <p id="subtitle">Running web applications on this box</p>
+      </div>
+      <div class="status" title="Automatic refresh">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="refresh-label">Live</span>
+      </div>
+    </header>
+
+    <section class="dashboard" aria-label="System status">
+      <div class="gauge-group">
+        <article class="gauge-card">
+          <div class="gauge" id="gauge-ram" style="--value: 0"><span>0%</span></div>
+          <div><h2>RAM</h2><p id="ram-detail">Loading</p></div>
+        </article>
+        <article class="gauge-card">
+          <div class="gauge" id="gauge-cpu" style="--value: 0"><span>0%</span></div>
+          <div><h2>CPU</h2><p id="cpu-detail">Loading</p></div>
+        </article>
+        <article class="gauge-card">
+          <div class="gauge" id="gauge-disk" style="--value: 0"><span>0%</span></div>
+          <div><h2>Disk</h2><p id="disk-detail">Loading</p></div>
+        </article>
+      </div>
+
+      <section class="network-panel">
+        <div class="panel-head">
+          <h2>Network</h2>
+          <span id="tailscale-state" class="state-badge">Tailscale unknown</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Interface</th><th>IP</th><th>Type</th><th>Tailscale</th></tr>
+            </thead>
+            <tbody id="ip-table"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="apps" class="grid" aria-live="polite"></section>
+    <section id="empty" class="empty" hidden>
+      <h2>No published apps are running</h2>
+      <p>Start containers with <code>portal.enable=true</code> labels and they will appear here automatically.</p>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

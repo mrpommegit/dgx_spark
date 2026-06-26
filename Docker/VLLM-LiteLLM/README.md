@@ -32,8 +32,29 @@ Open:
 - Manager UI: `http://localhost:8088`
 - Open WebUI: `http://localhost:3000`
 - LiteLLM API: `http://localhost:4000/v1`
+- LiteLLM Admin UI: `http://localhost:4000/ui/`
+
+The default LiteLLM admin UI login from `.env.example` is `admin` / `change-me`.
+Change `LITELLM_UI_USERNAME`, `LITELLM_UI_PASSWORD`, `LITELLM_MASTER_KEY`, and
+`LITELLM_POSTGRES_PASSWORD` before exposing the stack beyond a trusted LAN/VPN.
+The admin UI requires the bundled Postgres service because recent LiteLLM login
+flows create UI session keys in the database.
 
 In the manager, choose a local model and click `Apply and restart vLLM`.
+
+## Open WebUI and LiteLLM Integration
+
+Open WebUI is configured as an OpenAI-compatible client of LiteLLM:
+
+```text
+Open WebUI -> LiteLLM :4000/v1 -> vLLM runtime :8000/v1 -> local model
+```
+
+Open WebUI uses `OPENAI_API_BASE_URL=http://litellm:4000/v1` and
+`OPENAI_API_KEY=${LITELLM_MASTER_KEY}`. LiteLLM exposes the `local-vllm` model
+from `litellm/config.yaml` and forwards requests to `http://vllm-runtime:8000/v1`.
+The `vllm-runtime` container is created dynamically by the manager UI, so start a
+model there before expecting Open WebUI chats to complete.
 
 ## What Can Be Changed Dynamically
 

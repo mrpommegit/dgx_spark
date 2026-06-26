@@ -23,6 +23,8 @@ fine-tuning guidance, and proposed stack decisions.
   DGX Spark, with a host install fallback.
 - `Docker/VLLM-LiteLLM/` - Docker Compose stack for vLLM, LiteLLM, Open WebUI,
   and a small manager UI for switching local models and runtime settings.
+- `Docker/portal-proxy/` - Dynamic portal on port 80 that lists running
+  containerized web apps published with `portal.*` labels.
 - `security/` - Security-related scripts and configuration proposals.
 - `finetuning/` - Fine-tuning support scripts, notes, and workflow proposals.
 
@@ -68,6 +70,18 @@ From `comfyui/`:
 Open `http://localhost:8188`. Runtime data, custom nodes, downloaded models,
 inputs, and outputs live under `comfyui/data/` by default and are intentionally
 ignored by git.
+
+### Dynamic Portal
+
+From `Docker/portal-proxy/`:
+
+```bash
+docker compose up -d
+```
+
+Open `http://<box-ip>/`. The portal lists running containers that have
+`portal.enable=true` labels and opens each app through its published host port.
+Use `PORTAL_PORT=8080` in `Docker/portal-proxy/.env` if port 80 is already used.
 
 ### vLLM + LiteLLM + Open WebUI
 

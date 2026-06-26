@@ -13,6 +13,13 @@ services:
     shm_size: ${COMFYUI_SHM_SIZE:-16gb}
     ports:
       - "${COMFYUI_PORT:-8188}:8188"
+    labels:
+      portal.enable: "true"
+      portal.name: "ComfyUI"
+      portal.description: "Image and video generation workflows"
+      portal.port: "${COMFYUI_PORT:-8188}"
+      portal.icon: "image"
+      portal.order: "10"
     environment:
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility,video}
