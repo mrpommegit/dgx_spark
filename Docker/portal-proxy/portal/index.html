@@ -19,7 +19,13 @@
       </div>
     </header>
 
-    <section class="dashboard" aria-label="System status">
+    <nav class="tabs">
+      <button class="tab active" data-tab="apps">Applications</button>
+      <button class="tab" data-tab="stats">Statistics</button>
+    </nav>
+
+    <section id="tab-apps" class="tab-content active">
+      <section class="dashboard" aria-label="System status">
       <div class="gauge-group">
         <article class="gauge-card">
           <div class="gauge" id="gauge-ram" style="--value: 0"><span>0%</span></div>
@@ -56,10 +62,36 @@
           </table>
         </div>
       </section>
+
+      <section id="apps" class="grid" aria-live="polite"></section>
+    <section id="empty" class="empty" hidden>
+      <h2>No published apps are running</h2>
+      <p>Start containers with <code>portal.enable=true</code> labels and they will appear here automatically.</p>
+    </section>
     </section>
 
-    <section id="apps" class="grid" aria-live="polite"></section>
-    <section id="empty" class="empty" hidden>
+    <section id="tab-stats" class="tab-content">
+      <section class="stats-view">
+        <header class="stats-header">
+          <h2>LiteLLM Model Statistics</h2>
+          <div class="stats-meta">
+            <span class="stats-refresh">Last updated: <time id="stats-time">--</time></span>
+            <button id="stats-refresh-btn" class="refresh-btn">Refresh</button>
+          </div>
+        </header>
+
+        <div id="stats-loading" class="stats-loading">
+          <div class="loading-spinner"></div>
+          <p>Loading statistics from LiteLLM...</p>
+        </div>
+
+        <div id="stats-error" class="stats-error" hidden>
+          <p>Unable to load statistics. Make sure LiteLLM is running.</p>
+        </div>
+
+        <div id="stats-content" class="stats-grid" hidden></div>
+      </section>
+    </section>
       <h2>No published apps are running</h2>
       <p>Start containers with <code>portal.enable=true</code> labels and they will appear here automatically.</p>
     </section>

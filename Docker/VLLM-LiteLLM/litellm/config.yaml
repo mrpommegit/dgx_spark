@@ -4,6 +4,11 @@ model_list:
       model: openai/local-vllm
       api_base: http://vllm-runtime:8000/v1
       api_key: EMPTY
+  - model_name: local-llamacpp
+    litellm_params:
+      model: openai/local-llamacpp
+      api_base: http://llamacpp-runtime:8080/v1
+      api_key: EMPTY
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
@@ -11,3 +16,4 @@ general_settings:
 litellm_settings:
   drop_params: true
   request_timeout: 600
+  require_auth_for_metrics_endpoint: false

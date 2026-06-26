@@ -4,6 +4,7 @@ import shutil
 import socket
 import subprocess
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlencode
@@ -280,6 +281,152 @@ def system_snapshot() -> dict[str, object]:
     }
 
 
+def litellm_stats() -> dict[str, dict[str, object]]:
+    """Fetch model statistics from vLLM and llama.cpp runtimes via Docker exec API."""
+    models: dict[str, dict[str, object]] = {}
+
+    def docker_exec(container_name: str, cmd: list[str]) -> str:
+        """Execute command in container via Docker socket."""
+        try:
+            # Create exec instance
+            create_body = json.dumps({"AttachStdout": True, "AttachStderr": True, "Tty": False, "Cmd": cmd})
+            create_req = (
+                f"POST /containers/{container_name}/exec HTTP/1.1\r\n"
+                f"Host: docker\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: {len(create_body)}\r\n"
+                f"Connection: close\r\n"
+                "\r\n"
+            ).encode("utf-8") + create_body.encode("utf-8")
+
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(5)
+                sock.connect(SOCKET_PATH)
+                sock.sendall(create_req)
+
+                # Read response
+                response = b""
+                while True:
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        break
+                    response += chunk
+
+            header, _, body = response.partition(b"\r\n\r\n")
+            if b"transfer-encoding: chunked" in header.lower():
+                body = decode_chunked(body)
+
+            create_result = json.loads(body.decode("utf-8"))
+            exec_id = create_result.get("Id", "")
+            if not exec_id:
+                return ""
+
+            # Start exec
+            start_body = json.dumps({"Detach": False, "Tty": False})
+            start_req = (
+                f"POST /exec/{exec_id}/start HTTP/1.1\r\n"
+                f"Host: docker\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: {len(start_body)}\r\n"
+                f"Connection: close\r\n"
+                "\r\n"
+            ).encode("utf-8") + start_body.encode("utf-8")
+
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(10)
+                sock.connect(SOCKET_PATH)
+                sock.sendall(start_req)
+
+                response = b""
+                while True:
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        break
+                    response += chunk
+
+            header, _, body = response.partition(b"\r\n\r\n")
+            if b"transfer-encoding: chunked" in header.lower():
+                body = decode_chunked(body)
+
+            return body.decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    # Fetch vLLM metrics via Docker exec API
+    try:
+        metrics_text = docker_exec("vllm-runtime", ["curl", "-s", "http://localhost:8000/metrics"])
+        if metrics_text:
+            prompt_tokens = 0
+            generation_tokens = 0
+            time_e2e_sum = 0
+            time_queue_sum = 0
+            request_count = 0
+
+            for line in metrics_text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if line.startswith("vllm:prompt_tokens_total{") and "} " in line:
+                    prompt_tokens = float(line.split("} ")[1])
+                elif line.startswith("vllm:generation_tokens_total{") and "} " in line:
+                    generation_tokens = float(line.split("} ")[1])
+                elif line.startswith("vllm:e2e_request_latency_seconds_sum{") and "} " in line:
+                    time_e2e_sum = float(line.split("} ")[1])
+                elif line.startswith("vllm:request_queue_time_seconds_sum{") and "} " in line:
+                    time_queue_sum = float(line.split("} ")[1])
+                elif line.startswith("vllm:e2e_request_latency_seconds_count{") and "} " in line:
+                    request_count = float(line.split("} ")[1])
+
+            if request_count > 0 and time_e2e_sum > 0:
+                tpp = (prompt_tokens / time_e2e_sum) if time_e2e_sum > 0 else 0
+                tft = (time_queue_sum / request_count) if time_queue_sum > 0 else 0
+                toks = (generation_tokens / time_e2e_sum) if time_e2e_sum > 0 else 0
+
+                models["local-vllm"] = {
+                    "model_name": "local-vllm",
+                    "type": "vllm",
+                    "prompt_tokens_per_second": round(tpp, 2),
+                    "prompt_time_to_first_token": round(tft, 3),
+                    "tokens_per_second": round(toks, 2),
+                }
+
+    except Exception:
+        pass
+
+    # Fetch llama.cpp metrics via Docker exec API
+    try:
+        metrics_text = docker_exec("llamacpp-runtime", ["curl", "-s", "http://localhost:8080/metrics"])
+        if metrics_text:
+            tpp = 0.0
+            toks = 0.0
+
+            for line in metrics_text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                # llama.cpp provides direct gauge metrics for throughput
+                if line.startswith("llamacpp:prompt_tokens_seconds ") and not "}" in line:
+                    tpp = float(line.split()[1])
+                elif line.startswith("llamacpp:predicted_tokens_seconds ") and not "}" in line:
+                    toks = float(line.split()[1])
+
+            if toks > 0:
+                models["local-llamacpp"] = {
+                    "model_name": "local-llamacpp",
+                    "type": "llamacpp",
+                    "prompt_tokens_per_second": round(tpp, 2),
+                    "prompt_time_to_first_token": 0,
+                    "tokens_per_second": round(toks, 2),
+                }
+
+    except Exception:
+        pass
+
+    return {"models": list(models.values())}
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         print(f"{self.address_string()} - {format % args}")
@@ -297,6 +444,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(system_snapshot())
             except Exception as exc:
                 self.send_json({"error": str(exc)})
+            return
+        if self.path == "/api/litellm-stats":
+            try:
+                self.send_json(litellm_stats())
+            except Exception as exc:
+                self.send_json({"models": [], "error": str(exc)})
             return
         if self.path == "/healthz":
             self.send_json({"ok": True})
