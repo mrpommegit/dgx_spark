@@ -25,6 +25,8 @@ fine-tuning guidance, and proposed stack decisions.
   and a small manager UI for switching local models and runtime settings.
 - `Docker/portal-proxy/` - Dynamic portal on port 80 that lists running
   containerized web apps published with `portal.*` labels.
+- `Docker/Portainer/` - Portainer container management UI with persistent
+  data under `~/portainer-data`.
 - `security/` - Security-related scripts and configuration proposals.
 - `finetuning/` - Fine-tuning support scripts, notes, and workflow proposals.
 
@@ -82,6 +84,18 @@ docker compose up -d
 Open `http://<box-ip>/`. The portal lists running containers that have
 `portal.enable=true` labels and opens each app through its published host port.
 Use `PORTAL_PORT=8080` in `Docker/portal-proxy/.env` if port 80 is already used.
+
+### Portainer
+
+From `Docker/Portainer/`:
+
+```bash
+cp .env.example .env
+docker compose up -d
+```
+
+Open `https://<box-ip>:9443/`. Create an admin user on first visit. Persistent
+data is stored in `~/portainer-data` by default.
 
 ### vLLM + LiteLLM + Open WebUI
 
