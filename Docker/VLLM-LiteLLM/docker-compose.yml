@@ -1,0 +1,65 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm-proxy
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-change-me}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-change-me-salt}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    networks:
+      - llmnet
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    environment:
+      OPENAI_API_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_BASE_URLS: http://litellm:4000/v1
+      OPENAI_API_KEY: ${LITELLM_MASTER_KEY:-change-me}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-webui-secret}
+    volumes:
+      - open-webui-data:/app/backend/data
+    ports:
+      - "${OPEN_WEBUI_PORT:-3000}:8080"
+    depends_on:
+      - litellm
+    networks:
+      - llmnet
+
+  manager:
+    build:
+      context: ./manager
+    container_name: vllm-manager
+    restart: unless-stopped
+    environment:
+      LLM_DIR: ${LLM_DIR}
+      VLLM_IMAGE: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+      VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.70}
+      VLLM_MAX_MODEL_LEN: ${VLLM_MAX_MODEL_LEN:-8192}
+      VLLM_MAX_NUM_SEQS: ${VLLM_MAX_NUM_SEQS:-16}
+      VLLM_DTYPE: ${VLLM_DTYPE:-auto}
+      VLLM_TENSOR_PARALLEL_SIZE: ${VLLM_TENSOR_PARALLEL_SIZE:-1}
+      VLLM_QUANTIZATION: ${VLLM_QUANTIZATION:-}
+      VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:-}
+      VLLM_CONTAINER_NAME: vllm-runtime
+      DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME:-vllm-litellm}_llmnet
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${LLM_DIR}:/models:rw
+    ports:
+      - "${MANAGER_PORT:-8088}:8088"
+    networks:
+      - llmnet
+
+networks:
+  llmnet:
+    name: ${COMPOSE_PROJECT_NAME:-vllm-litellm}_llmnet
+
+volumes:
+  open-webui-data:

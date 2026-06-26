@@ -4,3 +4,8 @@
 
 __pycache__/
 *.py[cod]
+
+# Local ComfyUI runtime data, downloaded models, generated media, and host installs.
+comfyui/.env
+comfyui/data/
+comfyui/host/

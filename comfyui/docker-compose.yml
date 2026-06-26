@@ -1,0 +1,26 @@
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        COMFYUI_REF: ${COMFYUI_REF:-master}
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}
+    image: ${COMFYUI_IMAGE:-dgx-spark-comfyui:local}
+    container_name: ${COMFYUI_CONTAINER_NAME:-comfyui}
+    restart: unless-stopped
+    gpus: all
+    shm_size: ${COMFYUI_SHM_SIZE:-16gb}
+    ports:
+      - "${COMFYUI_PORT:-8188}:8188"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility,video}
+      COMFYUI_ARGS: ${COMFYUI_ARGS:---listen 0.0.0.0 --port 8188 --enable-manager}
+      COMFYUI_EXTRA_ARGS: ${COMFYUI_EXTRA_ARGS:-}
+      COMFYUI_CUSTOM_NODE_REPOS: ${COMFYUI_CUSTOM_NODE_REPOS:-https://github.com/ltdrdata/ComfyUI-Manager.git https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git}
+    volumes:
+      - ${COMFYUI_DATA_DIR:-./data}/models:/opt/ComfyUI/models
+      - ${COMFYUI_DATA_DIR:-./data}/input:/opt/ComfyUI/input
+      - ${COMFYUI_DATA_DIR:-./data}/output:/opt/ComfyUI/output
+      - ${COMFYUI_DATA_DIR:-./data}/custom_nodes:/opt/ComfyUI/custom_nodes

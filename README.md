@@ -17,6 +17,12 @@ fine-tuning guidance, and proposed stack decisions.
   DGX Spark network/privacy modes using `nftables`.
 - `Wifi_alwaysON.sh` - NetworkManager helper to keep a configured Wi-Fi
   connection enabled and reconnecting.
+- `Connectivity/install_tailscale.sh` - Tailscale installer/configuration
+  helper driven by `.env`.
+- `comfyui/` - Docker-first ComfyUI setup for image and video generation on
+  DGX Spark, with a host install fallback.
+- `Docker/VLLM-LiteLLM/` - Docker Compose stack for vLLM, LiteLLM, Open WebUI,
+  and a small manager UI for switching local models and runtime settings.
 - `security/` - Security-related scripts and configuration proposals.
 - `finetuning/` - Fine-tuning support scripts, notes, and workflow proposals.
 
@@ -26,12 +32,56 @@ Use these folders to keep future work easy to review:
 
 - `security/` - Firewalling, privacy modes, access controls, hardening, and
   threat-model notes.
+- `Connectivity/` - VPN, overlay networking, remote access, and connectivity
+  automation.
 - `finetuning/` - Fine-tuning recipes, dataset preparation notes, training
   configuration, evaluation plans, and experiment results.
 - `configs/` - Reusable system, service, network, and tool configuration files.
 - `proposals/` - Stack proposals, design decisions, tradeoffs, and rollout
   plans.
 - `docs/` - General DGX Spark operating procedures and best-practice notes.
+
+## Quick Starts
+
+### Tailscale
+
+Configure the Tailscale values in `.env`, then run:
+
+```bash
+./Connectivity/install_tailscale.sh
+```
+
+Leave `TAILSCALE_AUTH_KEY` empty for an interactive login, or set an auth key
+for unattended provisioning. Optional settings in `.env.example` cover hostname,
+route acceptance, Tailscale SSH, exit-node advertising, subnet routes, tags, and
+extra `tailscale up` arguments.
+
+### ComfyUI
+
+From `comfyui/`:
+
+```bash
+./install_comfyui.sh docker
+./install_comfyui.sh start
+```
+
+Open `http://localhost:8188`. Runtime data, custom nodes, downloaded models,
+inputs, and outputs live under `comfyui/data/` by default and are intentionally
+ignored by git.
+
+### vLLM + LiteLLM + Open WebUI
+
+From `Docker/VLLM-LiteLLM/`:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+Set `LLM_DIR` in `.env` to the host directory containing downloaded Hugging Face
+models. The manager UI is exposed on `http://localhost:8088`, Open WebUI on
+`http://localhost:3000`, and the LiteLLM OpenAI-compatible API on
+`http://localhost:4000/v1`.
 
 ## Contribution Notes
 
