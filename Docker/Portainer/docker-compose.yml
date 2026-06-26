@@ -1,0 +1,27 @@
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    command: -H unix:///var/run/docker.sock
+    ports:
+      - "${PORTAINER_PORT:-9443}:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${PORTAINER_DATA_DIR:-~/portainer-data}:/data
+    environment:
+      TZ: ${TZ:-UTC}
+    labels:
+      portal.enable: "true"
+      portal.name: "Portainer"
+      portal.description: "Docker container management UI"
+      portal.port: "${PORTAINER_PORT:-9443}"
+      portal.icon: "settings"
+      portal.order: "50"
+    networks:
+      - dgx_net
+
+networks:
+  dgx_net:
+    external: true
+    name: dgx_net
