@@ -535,6 +535,10 @@ th {
   gap: 20px;
 }
 
+.stats-grid:not([hidden]) {
+  display: grid;
+}
+
 .stats-card {
   border: 1px solid var(--line);
   border-radius: 8px;
