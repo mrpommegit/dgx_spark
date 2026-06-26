@@ -241,35 +241,40 @@ const statsLoading = document.querySelector('#stats-loading');
 const statsError = document.querySelector('#stats-error');
 const statsTime = document.querySelector('#stats-time');
 const statsRefreshBtn = document.querySelector('#stats-refresh-btn');
+const statsRangeButtons = document.querySelectorAll('.range-btn');
+let statsRange = 'hour';
 
 if (statsRefreshBtn) {
-  statsRefreshBtn.addEventListener('click', loadStatistics);
+  statsRefreshBtn.addEventListener('click', () => loadStatistics());
 }
 
-async function loadStatistics() {
-  console.log('Loading statistics...');
+statsRangeButtons.forEach(button => {
+  button.addEventListener('click', () => {
+    statsRange = button.dataset.range || 'hour';
+    statsRangeButtons.forEach(item => {
+      item.classList.toggle('active', item === button);
+    });
+    loadStatistics();
+  });
+});
 
-  if (statsLoading) {
-    statsLoading.hidden = false;
-    console.log('Showing loading indicator');
-  }
+async function loadStatistics() {
+  if (statsLoading) statsLoading.hidden = false;
   if (statsContent) statsContent.hidden = true;
   if (statsError) statsError.hidden = true;
 
   try {
-    const response = await fetch('/api/litellm-stats', { cache: 'no-store' });
+    const params = new URLSearchParams({ range: statsRange });
+    const response = await fetch(`/api/litellm-stats?${params}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('Failed to fetch stats');
 
     const data = await response.json();
-    console.log('Stats data received:', data);
     renderStatistics(data);
 
-    // Update timestamp
     if (statsTime) {
       statsTime.textContent = new Date().toLocaleTimeString();
     }
 
-    // Auto-refresh every 10 seconds when on stats tab
     if (statsInterval) clearInterval(statsInterval);
     if (currentTab === 'stats') {
       statsInterval = setInterval(loadStatistics, 10000);
@@ -282,81 +287,185 @@ async function loadStatistics() {
 }
 
 function renderStatistics(data) {
-  console.log('renderStatistics called with:', data);
-
-  if (!statsContent) {
-    console.error('statsContent element not found!');
-    return;
-  }
+  if (!statsContent) return;
 
   if (statsLoading) statsLoading.hidden = true;
   statsContent.hidden = false;
 
-  const models = data.models || [];
+  const engines = data.engines || groupLegacyModels(data.models || []);
 
-  if (models.length === 0) {
-    statsContent.innerHTML = '<p style="color: var(--muted); text-align: center; padding: 40px;">No model statistics available yet. Make some requests to see data.</p>';
+  if (engines.length === 0) {
+    statsContent.innerHTML = '<p class="stats-empty">No model statistics available yet. Make some requests to see data.</p>';
     return;
   }
 
   statsContent.innerHTML = '';
-  console.log('Creating cards for', models.length, 'models');
-
-  for (const model of models) {
-    const card = createStatsCard(model);
-    statsContent.appendChild(card);
+  for (const engine of engines) {
+    statsContent.appendChild(createEngineStatsCard(engine));
   }
-
-  console.log('Stats rendered successfully');
 }
 
-function createStatsCard(model) {
+function groupLegacyModels(models) {
+  if (!models.length) return [];
+  return [{ engine_key: 'legacy', engine_name: 'LLM runtime', type: 'LLM', models }];
+}
+
+function createEngineStatsCard(engine) {
   const card = document.createElement('div');
   card.className = 'stats-card';
 
-  const modelName = model.model_name || 'Unknown Model';
-  const tpp = model.prompt_tokens_per_second || model.tpp || 0;
-  const tft = model.prompt_time_to_first_token || model.tft || 0;
-  const toks = model.tokens_per_second || model.toks || 0;
-
-  // Calculate max for chart scaling
-  const maxTok = Math.max(toks, 1);
-  const barHeight = Math.min(100, (toks / maxTok) * 100);
+  const models = engine.models || [];
+  const latestToks = models.reduce((total, model) => total + Number(model.tokens_per_second || model.toks || 0), 0);
+  const chart = createLineChart(models, statsRange);
 
   card.innerHTML = `
     <div class="stats-card-header">
-      <span class="stats-model-name">${modelName}</span>
-      <span class="stats-model-badge">${model.type || 'LLM'}</span>
+      <span class="stats-model-name"></span>
+      <span class="stats-model-badge">${engine.type || 'LLM'}</span>
     </div>
     <div class="stats-metrics">
       <div class="metric">
-        <div class="metric-label">TPP</div>
-        <div class="metric-value">${formatNumber(tpp)}</div>
+        <div class="metric-label">Models</div>
+        <div class="metric-value">${models.length}</div>
       </div>
       <div class="metric">
-        <div class="metric-label">TFT (ms)</div>
-        <div class="metric-value">${formatNumber(tft * 1000)}</div>
+        <div class="metric-label">Engine Tok/s</div>
+        <div class="metric-value">${formatNumber(latestToks)}</div>
       </div>
       <div class="metric">
-        <div class="metric-label">Tok/s</div>
-        <div class="metric-value">${formatNumber(toks)}</div>
+        <div class="metric-label">Samples</div>
+        <div class="metric-value">${models.reduce((total, model) => total + (model.history || []).length, 0)}</div>
       </div>
     </div>
-    <div class="stats-chart">
-      <div class="chart-bar-container">
-        <div class="chart-bar" style="height: ${barHeight}%"></div>
-        <span class="chart-bar-label">${toks.toFixed(1)} t/s</span>
+    <div class="stats-chart-shell">
+      <div class="chart-title-row">
+        <span>Tokens per second by model</span>
+        <strong>${formatNumber(latestToks)} tok/s</strong>
+      </div>
+      ${chart}
+      <div class="chart-legend">
+        ${models.map((model, index) => `<span><i class="legend-dot" style="background:${seriesColor(index)}"></i>${escapeHtml(model.model_name || 'Unknown Model')}</span>`).join('')}
       </div>
     </div>
   `;
 
+  card.querySelector('.stats-model-name').textContent = engine.engine_name || 'LLM engine';
   return card;
+}
+
+function normalizeHistory(history) {
+  return history
+    .map(sample => ({
+      ts: Number(sample.ts) || 0,
+      toks: Number(sample.toks) || 0,
+      tpp: Number(sample.tpp) || 0,
+      tft: Number(sample.tft) || 0,
+    }))
+    .filter(sample => sample.ts > 0)
+    .sort((a, b) => a.ts - b.ts);
+}
+
+function createLineChart(models, rangeName) {
+  const width = 680;
+  const height = 280;
+  const padding = { top: 18, right: 18, bottom: 34, left: 44 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const now = Math.floor(Date.now() / 1000);
+  const windowSeconds = rangeToSeconds(rangeName);
+  const minTs = now - windowSeconds;
+  const series = models.map((model, index) => ({
+    modelName: model.model_name || 'Unknown Model',
+    color: seriesColor(index),
+    points: normalizeHistory(model.history || [])
+      .filter(sample => sample.ts >= minTs)
+      .map(sample => ({
+        sample,
+        x: padding.left + ((sample.ts - minTs) / windowSeconds) * plotWidth,
+        y: 0,
+      })),
+  }));
+  const allValues = series.flatMap(item => item.points.map(point => point.sample.toks));
+  const maxValue = Math.max(...allValues, 1);
+  const ticks = [0, maxValue / 2, maxValue];
+
+  for (const item of series) {
+    for (const point of item.points) {
+      point.x = clamp(point.x, padding.left, padding.left + plotWidth);
+      point.y = padding.top + plotHeight - (point.sample.toks / maxValue) * plotHeight;
+    }
+  }
+
+  const lines = series.map(item => {
+    const path = linePath(item.points);
+    if (!path) return '';
+    const points = item.points.map(point => `
+      <circle class="chart-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" style="stroke:${item.color}">
+        <title>${escapeHtml(item.modelName)} - ${formatDate(point.sample.ts)} - ${formatNumber(point.sample.toks)} tok/s</title>
+      </circle>
+    `).join('');
+    return `<path class="chart-line" d="${path}" style="stroke:${item.color}"></path>${points}`;
+  }).join('');
+
+  const emptyText = allValues.length === 0 ? '<text class="chart-empty-text" x="340" y="142" text-anchor="middle">Collecting history...</text>' : '';
+
+  return `
+    <svg class="area-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Tokens per second history by model">
+      ${ticks.map(value => {
+        const y = padding.top + plotHeight - (value / maxValue) * plotHeight;
+        return `<g class="chart-gridline"><line x1="${padding.left}" x2="${padding.left + plotWidth}" y1="${y.toFixed(2)}" y2="${y.toFixed(2)}"></line><text x="${padding.left - 10}" y="${(y + 4).toFixed(2)}" text-anchor="end">${formatNumber(value)}</text></g>`;
+      }).join('')}
+      <text class="chart-axis-label" x="${padding.left}" y="${height - 8}">${rangeStartLabel(rangeName)}</text>
+      <text class="chart-axis-label" x="${padding.left + plotWidth}" y="${height - 8}" text-anchor="end">Now</text>
+      ${lines}
+      ${emptyText}
+    </svg>
+  `;
+}
+
+function linePath(points) {
+  if (points.length === 0) return '';
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
+}
+
+function seriesColor(index) {
+  return ['#157f72', '#2563eb', '#c2410c', '#7c3aed', '#be123c', '#0f766e'][index % 6];
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  }[char]));
+}
+
+function rangeToSeconds(rangeName) {
+  if (rangeName === 'day') return 24 * 60 * 60;
+  if (rangeName === '7days') return 7 * 24 * 60 * 60;
+  return 60 * 60;
+}
+
+function rangeStartLabel(rangeName) {
+  if (rangeName === 'day') return '24h ago';
+  if (rangeName === '7days') return '7d ago';
+  return '1h ago';
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatDate(timestamp) {
+  return new Date(timestamp * 1000).toLocaleString();
 }
 
 function formatNumber(num) {
   if (num === 0) return '0';
   if (!num || isNaN(num)) return '--';
-  return num.toFixed(1);
+  return Number(num).toFixed(1);
 }
 
 // Add debug logging for stats loading

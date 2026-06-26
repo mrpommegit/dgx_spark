@@ -5,9 +5,10 @@ import socket
 import subprocess
 import time
 import urllib.request
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("PORTAL_HOST_ROOT", "/host"))
@@ -15,6 +16,10 @@ SOCKET_PATH = "/var/run/docker.sock"
 PORT = int(os.getenv("PORTAL_INTERNAL_PORT", "8080"))
 TITLE = os.getenv("PORTAL_TITLE", "DGX Spark Portal")
 REFRESH_SECONDS = os.getenv("PORTAL_REFRESH_SECONDS", "5")
+STATS_HISTORY_PATH = Path(os.getenv("PORTAL_STATS_HISTORY_PATH", "/tmp/dgx-portal-litellm-history.json"))
+STATS_RETENTION_SECONDS = 7 * 24 * 60 * 60
+STATS_SAMPLE_SECONDS = int(os.getenv("PORTAL_STATS_SAMPLE_SECONDS", "60"))
+STATS_HISTORY_LOCK = threading.Lock()
 
 MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -281,7 +286,220 @@ def system_snapshot() -> dict[str, object]:
     }
 
 
-def litellm_stats() -> dict[str, dict[str, object]]:
+def stats_range_seconds(range_name: str) -> int:
+    ranges = {
+        "hour": 60 * 60,
+        "day": 24 * 60 * 60,
+        "7days": STATS_RETENTION_SECONDS,
+    }
+    return ranges.get(range_name, ranges["hour"])
+
+
+def read_stats_history() -> dict[str, dict[str, object]]:
+    try:
+        data = json.loads(STATS_HISTORY_PATH.read_text())
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    history: dict[str, dict[str, object]] = {}
+    for series_id, value in data.items():
+        if not isinstance(series_id, str):
+            continue
+        if isinstance(value, list):
+            continue
+        if isinstance(value, dict):
+            samples = value.get("samples", [])
+            meta = value.get("meta", {})
+            if isinstance(samples, list) and isinstance(meta, dict) and meta.get("engine_key") != "legacy":
+                history[series_id] = {
+                    "meta": meta,
+                    "samples": [sample for sample in samples if isinstance(sample, dict)],
+                }
+    return history
+
+
+def write_stats_history(history: dict[str, dict[str, object]]) -> None:
+    STATS_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = STATS_HISTORY_PATH.with_suffix(".tmp")
+    temporary_path.write_text(json.dumps(history, separators=(",", ":")))
+    temporary_path.replace(STATS_HISTORY_PATH)
+
+
+def metric_value(model: dict[str, object], key: str) -> float:
+    value = model.get(key, 0)
+    try:
+        return round(float(value), 3)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def model_series_id(model: dict[str, object]) -> str:
+    return str(model.get("series_id") or f'{model.get("engine_key", "engine")}:{model.get("model_name", "model")}')
+
+
+def model_meta(model: dict[str, object]) -> dict[str, object]:
+    return {
+        "series_id": model_series_id(model),
+        "model_name": str(model.get("model_name") or "Unknown Model"),
+        "engine_key": str(model.get("engine_key") or "engine"),
+        "engine_name": str(model.get("engine_name") or model.get("type") or "Engine"),
+        "type": str(model.get("type") or "LLM"),
+    }
+
+
+def sample_from_model(model: dict[str, object], timestamp: int) -> dict[str, object]:
+    return {
+        "ts": timestamp,
+        "tpp": metric_value(model, "prompt_tokens_per_second"),
+        "tft": metric_value(model, "prompt_time_to_first_token"),
+        "toks": metric_value(model, "tokens_per_second"),
+    }
+
+
+def record_stats_history(models: list[dict[str, object]], range_name: str) -> dict[str, dict[str, object]]:
+    now = int(time.time())
+    retention_cutoff = now - STATS_RETENTION_SECONDS
+    range_cutoff = now - stats_range_seconds(range_name)
+
+    with STATS_HISTORY_LOCK:
+        history = read_stats_history()
+        for model in models:
+            series_id = model_series_id(model)
+            entry = history.setdefault(series_id, {"meta": model_meta(model), "samples": []})
+            entry["meta"] = model_meta(model)
+            samples = entry.setdefault("samples", [])
+            if isinstance(samples, list):
+                samples.append(sample_from_model(model, now))
+
+        cleaned: dict[str, dict[str, object]] = {}
+        for series_id, entry in history.items():
+            samples = entry.get("samples", [])
+            if not isinstance(samples, list):
+                continue
+            recent_samples = [
+                sample for sample in samples
+                if int(sample.get("ts", 0) or 0) >= retention_cutoff
+            ]
+            if recent_samples:
+                cleaned[series_id] = {"meta": entry.get("meta", {}), "samples": recent_samples}
+
+        write_stats_history(cleaned)
+
+    return {
+        series_id: {
+            "meta": entry.get("meta", {}),
+            "samples": [
+                sample for sample in entry.get("samples", [])
+                if int(sample.get("ts", 0) or 0) >= range_cutoff
+            ],
+        }
+        for series_id, entry in cleaned.items()
+    }
+
+
+def stats_with_history(range_name: str) -> dict[str, object]:
+    payload = litellm_stats()
+    models = payload.get("models", [])
+    if not isinstance(models, list):
+        models = []
+    history = record_stats_history(models, range_name)
+
+    by_series = {model_series_id(model): model for model in models if isinstance(model, dict)}
+    for series_id, entry in history.items():
+        meta = entry.get("meta", {}) if isinstance(entry.get("meta"), dict) else {}
+        model = by_series.setdefault(
+            series_id,
+            {
+                "series_id": series_id,
+                "model_name": meta.get("model_name", series_id),
+                "engine_key": meta.get("engine_key", "engine"),
+                "engine_name": meta.get("engine_name", "Engine"),
+                "type": meta.get("type", "LLM"),
+            },
+        )
+        model["history"] = entry.get("samples", [])
+
+    engines: dict[str, dict[str, object]] = {}
+    for model in by_series.values():
+        engine_key = str(model.get("engine_key") or "engine")
+        engine = engines.setdefault(
+            engine_key,
+            {
+                "engine_key": engine_key,
+                "engine_name": str(model.get("engine_name") or model.get("type") or "Engine"),
+                "type": str(model.get("type") or "LLM"),
+                "models": [],
+            },
+        )
+        engine["models"].append(model)
+
+    return {"range": range_name, "engines": list(engines.values()), "models": list(by_series.values())}
+
+
+def parse_prometheus_labels(label_text: str) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    index = 0
+    while index < len(label_text):
+        equals = label_text.find("=", index)
+        if equals == -1:
+            break
+        key = label_text[index:equals].strip().strip(",")
+        index = equals + 1
+        if index >= len(label_text) or label_text[index] != '"':
+            break
+        index += 1
+        value_chars: list[str] = []
+        while index < len(label_text):
+            char = label_text[index]
+            if char == '\\' and index + 1 < len(label_text):
+                value_chars.append(label_text[index + 1])
+                index += 2
+                continue
+            if char == '"':
+                index += 1
+                break
+            value_chars.append(char)
+            index += 1
+        labels[key] = "".join(value_chars)
+        comma = label_text.find(",", index)
+        if comma == -1:
+            break
+        index = comma + 1
+    return labels
+
+
+def parse_prometheus_metric(line: str) -> tuple[str, dict[str, str], float] | None:
+    try:
+        metric_part, raw_value = line.rsplit(None, 1)
+        value = float(raw_value)
+    except ValueError:
+        return None
+
+    if "{" in metric_part and metric_part.endswith("}"):
+        name, label_text = metric_part.split("{", 1)
+        return name, parse_prometheus_labels(label_text[:-1]), value
+    return metric_part, {}, value
+
+
+def parse_model_from_command(container_name: str) -> str:
+    try:
+        inspect_data = docker_get(f"/containers/{container_name}/json")
+        config = inspect_data.get("Config", {}) if isinstance(inspect_data, dict) else {}
+        cmd = config.get("Cmd") or []
+        if isinstance(cmd, list):
+            for index, item in enumerate(cmd):
+                if item == "--model" and index + 1 < len(cmd):
+                    return Path(str(cmd[index + 1])).stem
+                if str(item).startswith("--model="):
+                    return Path(str(item).split("=", 1)[1]).stem
+    except Exception:
+        pass
+    return "llama.cpp"
+
+
+def litellm_stats() -> dict[str, object]:
     """Fetch model statistics from vLLM and llama.cpp runtimes via Docker exec API."""
     models: dict[str, dict[str, object]] = {}
 
@@ -352,69 +570,105 @@ def litellm_stats() -> dict[str, dict[str, object]]:
         except Exception:
             return ""
 
-    # Fetch vLLM metrics via Docker exec API
+    # Fetch vLLM metrics via Docker exec API. vLLM exposes engine/model labels.
     try:
         metrics_text = docker_exec("vllm-runtime", ["curl", "-s", "http://localhost:8000/metrics"])
         if metrics_text:
-            prompt_tokens = 0
-            generation_tokens = 0
-            time_e2e_sum = 0
-            time_queue_sum = 0
-            request_count = 0
+            by_model: dict[str, dict[str, object]] = {}
 
             for line in metrics_text.splitlines():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+                parsed = parse_prometheus_metric(line)
+                if not parsed:
+                    continue
+                name, labels, value = parsed
+                model_name = labels.get("model_name")
+                engine_id = labels.get("engine", "0")
+                if not model_name:
+                    continue
 
-                if line.startswith("vllm:prompt_tokens_total{") and "} " in line:
-                    prompt_tokens = float(line.split("} ")[1])
-                elif line.startswith("vllm:generation_tokens_total{") and "} " in line:
-                    generation_tokens = float(line.split("} ")[1])
-                elif line.startswith("vllm:e2e_request_latency_seconds_sum{") and "} " in line:
-                    time_e2e_sum = float(line.split("} ")[1])
-                elif line.startswith("vllm:request_queue_time_seconds_sum{") and "} " in line:
-                    time_queue_sum = float(line.split("} ")[1])
-                elif line.startswith("vllm:e2e_request_latency_seconds_count{") and "} " in line:
-                    request_count = float(line.split("} ")[1])
+                series_id = f"vllm:{engine_id}:{model_name}"
+                item = by_model.setdefault(
+                    series_id,
+                    {
+                        "series_id": series_id,
+                        "engine_key": f"vllm:{engine_id}",
+                        "engine_name": f"vLLM engine {engine_id}",
+                        "model_name": model_name,
+                        "type": "vllm",
+                        "_prompt_tokens": 0.0,
+                        "_generation_tokens": 0.0,
+                        "_time_e2e_sum": 0.0,
+                        "_time_queue_sum": 0.0,
+                        "_request_count": 0.0,
+                    },
+                )
 
-            if request_count > 0 and time_e2e_sum > 0:
-                tpp = (prompt_tokens / time_e2e_sum) if time_e2e_sum > 0 else 0
-                tft = (time_queue_sum / request_count) if time_queue_sum > 0 else 0
-                toks = (generation_tokens / time_e2e_sum) if time_e2e_sum > 0 else 0
+                if name == "vllm:prompt_tokens_total":
+                    item["_prompt_tokens"] = value
+                elif name == "vllm:generation_tokens_total":
+                    item["_generation_tokens"] = value
+                elif name == "vllm:e2e_request_latency_seconds_sum":
+                    item["_time_e2e_sum"] = value
+                elif name == "vllm:request_queue_time_seconds_sum":
+                    item["_time_queue_sum"] = value
+                elif name == "vllm:e2e_request_latency_seconds_count":
+                    item["_request_count"] = value
 
-                models["local-vllm"] = {
-                    "model_name": "local-vllm",
+            for series_id, item in by_model.items():
+                request_count = float(item.get("_request_count", 0) or 0)
+                time_e2e_sum = float(item.get("_time_e2e_sum", 0) or 0)
+                if request_count <= 0 or time_e2e_sum <= 0:
+                    continue
+
+                prompt_tokens = float(item.get("_prompt_tokens", 0) or 0)
+                generation_tokens = float(item.get("_generation_tokens", 0) or 0)
+                time_queue_sum = float(item.get("_time_queue_sum", 0) or 0)
+                models[series_id] = {
+                    "series_id": series_id,
+                    "engine_key": item["engine_key"],
+                    "engine_name": item["engine_name"],
+                    "model_name": item["model_name"],
                     "type": "vllm",
-                    "prompt_tokens_per_second": round(tpp, 2),
-                    "prompt_time_to_first_token": round(tft, 3),
-                    "tokens_per_second": round(toks, 2),
+                    "prompt_tokens_per_second": round(prompt_tokens / time_e2e_sum, 2),
+                    "prompt_time_to_first_token": round(time_queue_sum / request_count, 3) if time_queue_sum > 0 else 0,
+                    "tokens_per_second": round(generation_tokens / time_e2e_sum, 2),
                 }
 
     except Exception:
         pass
 
-    # Fetch llama.cpp metrics via Docker exec API
+    # Fetch llama.cpp metrics via Docker exec API. llama.cpp exposes one runtime model per process.
     try:
         metrics_text = docker_exec("llamacpp-runtime", ["curl", "-s", "http://localhost:8080/metrics"])
         if metrics_text:
             tpp = 0.0
             toks = 0.0
+            model_name = parse_model_from_command("llamacpp-runtime")
 
             for line in metrics_text.splitlines():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+                parsed = parse_prometheus_metric(line)
+                if not parsed:
+                    continue
+                name, labels, value = parsed
 
-                # llama.cpp provides direct gauge metrics for throughput
-                if line.startswith("llamacpp:prompt_tokens_seconds ") and not "}" in line:
-                    tpp = float(line.split()[1])
-                elif line.startswith("llamacpp:predicted_tokens_seconds ") and not "}" in line:
-                    toks = float(line.split()[1])
+                if name == "llamacpp:prompt_tokens_seconds":
+                    tpp = value
+                elif name == "llamacpp:predicted_tokens_seconds":
+                    toks = value
 
             if toks > 0:
-                models["local-llamacpp"] = {
-                    "model_name": "local-llamacpp",
+                series_id = f"llamacpp:0:{model_name}"
+                models[series_id] = {
+                    "series_id": series_id,
+                    "engine_key": "llamacpp:0",
+                    "engine_name": "llama.cpp runtime",
+                    "model_name": model_name,
                     "type": "llamacpp",
                     "prompt_tokens_per_second": round(tpp, 2),
                     "prompt_time_to_first_token": 0,
@@ -427,37 +681,54 @@ def litellm_stats() -> dict[str, dict[str, object]]:
     return {"models": list(models.values())}
 
 
+def stats_history_sampler() -> None:
+    while True:
+        try:
+            payload = litellm_stats()
+            models = payload.get("models", [])
+            if isinstance(models, list):
+                record_stats_history(models, "7days")
+        except Exception as exc:
+            print(f"stats sampler failed: {exc}")
+        time.sleep(max(STATS_SAMPLE_SECONDS, 10))
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         print(f"{self.address_string()} - {format % args}")
 
     def do_GET(self) -> None:
-        if self.path == "/api/apps":
+        parsed_path = urlparse(self.path)
+        request_path = parsed_path.path
+        query = parse_qs(parsed_path.query)
+
+        if request_path == "/api/apps":
             try:
                 apps = portal_apps(self)
                 self.send_json({"title": TITLE, "refreshSeconds": int(REFRESH_SECONDS), "apps": apps})
             except Exception as exc:
                 self.send_json({"title": TITLE, "refreshSeconds": int(REFRESH_SECONDS), "apps": [], "error": str(exc)})
             return
-        if self.path == "/api/system":
+        if request_path == "/api/system":
             try:
                 self.send_json(system_snapshot())
             except Exception as exc:
                 self.send_json({"error": str(exc)})
             return
-        if self.path == "/api/litellm-stats":
+        if request_path == "/api/litellm-stats":
             try:
-                self.send_json(litellm_stats())
+                range_name = (query.get("range") or ["hour"])[0]
+                self.send_json(stats_with_history(range_name))
             except Exception as exc:
                 self.send_json({"models": [], "error": str(exc)})
             return
-        if self.path == "/healthz":
+        if request_path == "/healthz":
             self.send_json({"ok": True})
             return
-        if self.path in ("/", "/index.html"):
+        if request_path in ("/", "/index.html"):
             self.send_file(ROOT / "index.html")
             return
-        safe_path = self.path.split("?", 1)[0].lstrip("/")
+        safe_path = request_path.lstrip("/")
         target = (ROOT / safe_path).resolve()
         if ROOT in target.parents and target.is_file():
             self.send_file(target)
@@ -470,6 +741,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';")
         self.end_headers()
         self.wfile.write(body)
 
@@ -478,11 +750,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", MIME_TYPES.get(path.suffix, "application/octet-stream"))
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';")
         self.end_headers()
         self.wfile.write(body)
 
 
 if __name__ == "__main__":
+    threading.Thread(target=stats_history_sampler, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"Serving {TITLE} on 0.0.0.0:{PORT}")
     server.serve_forever()
