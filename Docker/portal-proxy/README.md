@@ -36,12 +36,16 @@ labels:
   portal.order: "10"
 ```
 
+Use `portal.protocol: "https"` for services that require HTTPS (like Portainer):
+
 When the container is running, the tile appears automatically. When it stops, the
 tile disappears at the next refresh. Each tile also shows live Docker stats for
 that container: CPU percent, RAM percent, and aggregate block I/O.
 
+Use `portal.protocol: "https"` for services that require HTTPS (like Portainer).
 Use `portal.url` only when the app should open a fixed URL. Without it, the
-portal builds `http://<box-ip>:<portal.port>` from the current request host.
+portal builds `http://<box-ip>:<portal.port>` (or `https://` if protocol is set)
+from the current request host.
 
 ## Security
 
