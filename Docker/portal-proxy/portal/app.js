@@ -5,6 +5,44 @@ const refreshLabel = document.querySelector('#refresh-label');
 const ipTable = document.querySelector('#ip-table');
 const tailscaleState = document.querySelector('#tailscale-state');
 
+// Tab switching
+const tabs = document.querySelectorAll('.tab');
+const tabContents = document.querySelectorAll('.tab-content');
+let currentTab = 'apps';
+let statsInterval = null;
+
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const targetTab = tab.dataset.tab;
+    switchTab(targetTab);
+  });
+});
+
+function switchTab(tabName) {
+  currentTab = tabName;
+
+  // Update tab buttons
+  tabs.forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === tabName);
+  });
+
+  // Update tab content
+  tabContents.forEach(content => {
+    content.classList.toggle('active', content.id === `tab-${tabName}`);
+  });
+
+  // Handle stats loading
+  if (tabName === 'stats') {
+    loadStatistics();
+  } else {
+    // Clear stats interval when not on stats tab
+    if (statsInterval) {
+      clearInterval(statsInterval);
+      statsInterval = null;
+    }
+  }
+}
+
 const iconText = (name) => {
   const words = name.trim().split(/\s+/).slice(0, 2);
   return words.map((word) => word[0] || '').join('').toUpperCase() || 'A';
@@ -195,4 +233,111 @@ if (collapseToggle && networkPanel) {
     const isExpanded = !networkPanel.classList.contains('collapsed');
     collapseToggle.setAttribute('aria-expanded', isExpanded);
   });
+}
+
+// Statistics functionality
+const statsContent = document.querySelector('#stats-content');
+const statsLoading = document.querySelector('#stats-loading');
+const statsError = document.querySelector('#stats-error');
+const statsTime = document.querySelector('#stats-time');
+const statsRefreshBtn = document.querySelector('#stats-refresh-btn');
+
+if (statsRefreshBtn) {
+  statsRefreshBtn.addEventListener('click', loadStatistics);
+}
+
+async function loadStatistics() {
+  if (statsLoading) statsLoading.hidden = false;
+  if (statsContent) statsContent.hidden = true;
+  if (statsError) statsError.hidden = true;
+
+  try {
+    const response = await fetch('/api/litellm-stats', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Failed to fetch stats');
+
+    const data = await response.json();
+    renderStatistics(data);
+
+    // Update timestamp
+    if (statsTime) {
+      statsTime.textContent = new Date().toLocaleTimeString();
+    }
+
+    // Auto-refresh every 10 seconds when on stats tab
+    if (statsInterval) clearInterval(statsInterval);
+    if (currentTab === 'stats') {
+      statsInterval = setInterval(loadStatistics, 10000);
+    }
+  } catch (error) {
+    if (statsLoading) statsLoading.hidden = true;
+    if (statsError) statsError.hidden = false;
+    console.error('Failed to load statistics:', error);
+  }
+}
+
+function renderStatistics(data) {
+  if (statsLoading) statsLoading.hidden = true;
+  if (statsContent) statsContent.hidden = false;
+
+  const models = data.models || [];
+
+  if (models.length === 0) {
+    statsContent.innerHTML = '<p style="color: var(--muted); text-align: center; padding: 40px;">No model statistics available yet. Make some requests to see data.</p>';
+    return;
+  }
+
+  statsContent.innerHTML = '';
+
+  for (const model of models) {
+    const card = createStatsCard(model);
+    statsContent.appendChild(card);
+  }
+}
+
+function createStatsCard(model) {
+  const card = document.createElement('div');
+  card.className = 'stats-card';
+
+  const modelName = model.model_name || 'Unknown Model';
+  const tpp = model.prompt_tokens_per_second || model.tpp || 0;
+  const tft = model.prompt_time_to_first_token || model.tft || 0;
+  const toks = model.tokens_per_second || model.toks || 0;
+
+  // Calculate max for chart scaling
+  const maxTok = Math.max(toks, 1);
+  const barHeight = Math.min(100, (toks / maxTok) * 100);
+
+  card.innerHTML = `
+    <div class="stats-card-header">
+      <span class="stats-model-name">${modelName}</span>
+      <span class="stats-model-badge">${model.type || 'LLM'}</span>
+    </div>
+    <div class="stats-metrics">
+      <div class="metric">
+        <div class="metric-label">TPP</div>
+        <div class="metric-value">${formatNumber(tpp)}</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">TFT (ms)</div>
+        <div class="metric-value">${formatNumber(tft * 1000)}</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Tok/s</div>
+        <div class="metric-value">${formatNumber(toks)}</div>
+      </div>
+    </div>
+    <div class="stats-chart">
+      <div class="chart-bar-container">
+        <div class="chart-bar" style="height: ${barHeight}%"></div>
+      </div>
+    </div>
+  `;
+
+  return card;
+}
+
+function formatNumber(num) {
+  if (num === 0) return '0';
+  if (!num || isNaN(num)) return '--';
+  return num.toFixed(1);
 }
