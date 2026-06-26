@@ -9,3 +9,4 @@ __pycache__/
 comfyui/.env
 comfyui/data/
 comfyui/host/
+*/build.log

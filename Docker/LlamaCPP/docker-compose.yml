@@ -1,0 +1,74 @@
+services:
+  llamacpp-manager:
+    build:
+      context: ./manager
+    image: llamacpp-manager:local
+    container_name: llamacpp-manager
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      LLM_DIR: ${LLM_DIR:-~/LLMs}
+      LLAMACPP_PORT: ${LLAMACPP_PORT:-8081}
+      LLAMACPP_MODEL: ${LLAMACPP_MODEL}
+      LLAMACPP_CTX_SIZE: ${LLAMACPP_CTX_SIZE:-8192}
+      LLAMACPP_GPU_LAYERS: ${LLAMACPP_GPU_LAYERS:-999}
+      LLAMACPP_THREADS: ${LLAMACPP_THREADS:-8}
+      LLAMACPP_PARALLEL: ${LLAMACPP_PARALLEL:-1}
+    ports:
+      - "${MANAGER_PORT:-8089}:8089"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${LLM_DIR:-~/LLMs}:/models:ro
+    networks:
+      - llamacpp-net
+      - vllm-litellm_llmnet
+    labels:
+      portal.enable: "true"
+      portal.name: "llama.cpp Manager"
+      portal.description: "Start, stop, and tune llama.cpp GGUF models"
+      portal.port: "${MANAGER_PORT:-8089}"
+      portal.icon: "settings"
+      portal.order: "60"
+
+  llamacpp-runtime:
+    build:
+      context: ./runtime
+    image: llamacpp-runtime:local
+    container_name: llamacpp-runtime
+    restart: unless-stopped
+    runtime: nvidia
+    command: >
+      --host 0.0.0.0
+      --port 8080
+      --model /models/${LLAMACPP_MODEL}/${LLAMACPP_GGUF_FILE:-Qwen3.6-35B-A3B-UD-Q4_K_M.gguf}
+      --ctx-size ${LLAMACPP_CTX_SIZE:-8192}
+      --n-gpu-layers ${LLAMACPP_GPU_LAYERS:-999}
+      --threads ${LLAMACPP_THREADS:-8}
+      --parallel ${LLAMACPP_PARALLEL:-1}
+      --jinja
+      --metrics
+      --slots
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility,video}
+    volumes:
+      - ${LLM_DIR:-~/LLMs}:/models:ro
+    ports:
+      - "${LLAMACPP_HOST_PORT:-8081}:8080"
+    networks:
+      - llamacpp-net
+      - vllm-litellm_llmnet
+    labels:
+      portal.enable: "true"
+      portal.name: "llama.cpp Runtime"
+      portal.description: "GGUF model inference server"
+      portal.port: "${LLAMACPP_HOST_PORT:-8081}"
+      portal.icon: "cpu"
+      portal.order: "61"
+
+networks:
+  llamacpp-net:
+    name: llamacpp-net
+  vllm-litellm_llmnet:
+    external: true
+    name: vllm-litellm_llmnet

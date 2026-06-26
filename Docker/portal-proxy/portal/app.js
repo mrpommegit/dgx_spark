@@ -185,3 +185,14 @@ const load = async () => {
 renderLoadingSystem();
 renderLoadingApps();
 load();
+
+// Setup network panel collapse toggle
+const networkPanel = document.querySelector('.network-panel');
+const collapseToggle = document.querySelector('.collapse-toggle');
+if (collapseToggle && networkPanel) {
+  collapseToggle.addEventListener('click', () => {
+    networkPanel.classList.toggle('collapsed');
+    const isExpanded = !networkPanel.classList.contains('collapsed');
+    collapseToggle.setAttribute('aria-expanded', isExpanded);
+  });
+}

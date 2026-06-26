@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>llama.cpp Manager</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f5f7f8;
+        color: #172026;
+      }
+      body { margin: 0; }
+      main { max-width: 1120px; margin: 0 auto; padding: 32px 20px; }
+      header { display: flex; align-items: end; justify-content: space-between; gap: 16px; border-bottom: 1px solid #d9e0e4; padding-bottom: 18px; margin-bottom: 24px; }
+      h1 { font-size: 28px; margin: 0 0 6px; }
+      p { margin: 0; color: #52616b; }
+      .status { border: 1px solid #d9e0e4; border-radius: 8px; padding: 12px 14px; background: #ffffff; min-width: 240px; }
+      .status strong { display: block; font-size: 13px; color: #52616b; }
+      .status span { font-size: 20px; font-weight: 700; }
+      form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+      label { display: grid; gap: 7px; font-size: 13px; font-weight: 650; color: #34444e; }
+      input, select, textarea { width: 100%; box-sizing: border-box; border: 1px solid #c9d2d8; border-radius: 6px; padding: 11px 12px; font: inherit; background: #ffffff; color: #172026; }
+      textarea { min-height: 88px; resize: vertical; }
+      .wide { grid-column: 1 / -1; }
+      .actions { display: flex; align-items: center; gap: 12px; grid-column: 1 / -1; border-top: 1px solid #d9e0e4; padding-top: 20px; flex-wrap: wrap; }
+      button, a.button { border: 0; border-radius: 6px; padding: 11px 14px; font: inherit; font-weight: 700; background: #176b87; color: #ffffff; cursor: pointer; text-decoration: none; }
+      button.secondary { background: #8a3b3b; }
+      button.neutral, a.button { background: #42535d; }
+      .note { margin: 18px 0 0; font-size: 13px; }
+      .meta { grid-column: 1 / -1; border: 1px solid #d9e0e4; border-radius: 8px; padding: 12px 14px; background: #ffffff; color: #34444e; font-size: 13px; }
+      .meta ul { margin: 8px 0 0; padding-left: 18px; }
+      .runtime-note { grid-column: 1 / -1; background: #e8f4f8; border: 1px solid #b8dce8; border-radius: 6px; padding: 12px 14px; font-size: 13px; color: #1a4d5c; }
+      .runtime-note strong { display: block; margin-bottom: 4px; }
+      @media (max-width: 760px) {
+        header, form { display: block; }
+        .status { margin-top: 18px; }
+        label, .meta, .runtime-note { margin-bottom: 14px; }
+        .actions { display: grid; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>llama.cpp Manager</h1>
+          <p>Start, stop, and tune GGUF models with llama.cpp server.</p>
+        </div>
+        <div class="status">
+          <strong>{{ container_name }}</strong>
+          <span>{{ state.status }}</span>
+          {% if state.model %}<p>{{ state.model }} / {{ state.gguf_file }}{% if state.profile %} ({{ state.profile }}){% endif %}</p>{% endif %}
+        </div>
+      </header>
+
+      <form id="runtime-form" method="post" action="/start">
+        <label class="wide">
+          GGUF model directory
+          <select id="model" name="model" required>
+            {% for item in catalog %}
+              <option value="{{ item.path }}" {% if values.model == item.path %}selected{% endif %}>{{ item.path }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="wide">
+          GGUF file
+          <select id="gguf_file" name="gguf_file" required>
+            <!-- Populated by JavaScript based on selected model -->
+          </select>
+        </label>
+
+        <label>
+          Profile
+          <select id="profile" name="profile"></select>
+        </label>
+
+        <label>
+          Save current settings as profile
+          <input name="profile_name" form="save-profile-form" placeholder="my_profile">
+        </label>
+
+        <div id="model-meta" class="meta"></div>
+
+        <label class="wide">
+          llama.cpp image
+          <input id="image" name="image" value="{{ values.image }}" required>
+        </label>
+
+        <label>
+          Context size (tokens)
+          <input id="ctx_size" name="ctx_size" type="number" min="512" step="512" value="{{ values.ctx_size }}" required>
+        </label>
+
+        <label>
+          GPU layers (-1 for all)
+          <input id="gpu_layers" name="gpu_layers" type="number" min="-1" max="999" value="{{ values.gpu_layers }}" required>
+        </label>
+
+        <label>
+          CPU threads
+          <input id="threads" name="threads" type="number" min="1" max="64" value="{{ values.threads }}" required>
+        </label>
+
+        <label>
+          Parallel sequences
+          <input id="parallel" name="parallel" type="number" min="1" max="4" value="{{ values.parallel }}" required>
+        </label>
+
+        <label>
+          Batch size
+          <input id="batch_size" name="batch_size" type="number" min="1" step="1" value="{{ values.batch_size }}" required>
+        </label>
+
+        <label>
+          Micro batch size
+          <input id="ubatch_size" name="ubatch_size" type="number" min="1" step="1" value="{{ values.ubatch_size }}" required>
+        </label>
+
+        <label class="wide">
+          Extra llama-server arguments
+          <textarea id="extra_args" name="extra_args" placeholder="--alias my-model --temp 0.7">{{ values.extra_args }}</textarea>
+        </label>
+
+        <div class="runtime-note">
+          <strong>Runtime Info</strong>
+          llama.cpp server will be available at <strong>http://localhost:8081/v1</strong> after starting.
+          This runtime can be used through LiteLLM (configured as <strong>local-llamacpp</strong>) or directly via OpenAI-compatible API.
+        </div>
+
+        <div class="actions">
+          <button type="submit">Apply and restart llama.cpp</button>
+          <button class="neutral" type="submit" form="save-profile-form">Save profile</button>
+          <button class="secondary" type="submit" form="stop-form">Stop llama.cpp</button>
+          <a class="button" href="/logs">Logs</a>
+        </div>
+      </form>
+
+      <form id="save-profile-form" method="post" action="/profiles/save">
+        <input type="hidden" name="model">
+        <input type="hidden" name="gguf_file">
+        <input type="hidden" name="image">
+        <input type="hidden" name="ctx_size">
+        <input type="hidden" name="gpu_layers">
+        <input type="hidden" name="threads">
+        <input type="hidden" name="parallel">
+        <input type="hidden" name="batch_size">
+        <input type="hidden" name="ubatch_size">
+        <input type="hidden" name="extra_args">
+      </form>
+      <form id="stop-form" method="post" action="/stop"></form>
+      <p class="note">The llama.cpp runtime provides an OpenAI-compatible API at port 8081. Configure LiteLLM to use it as <strong>local-llamacpp</strong> backend alongside vLLM.</p>
+    </main>
+
+    <script>
+      const catalog = {{ catalog | tojson }};
+      const initialValues = {{ values | tojson }};
+      const byPath = Object.fromEntries(catalog.map((item) => [item.path, item]));
+      const fields = ["image", "ctx_size", "gpu_layers", "threads", "parallel", "batch_size", "ubatch_size", "extra_args"];
+
+      // Store GGUF files for each model
+      const ggufFilesByModel = {};
+      for (const item of catalog) {
+        ggufFilesByModel[item.path] = item.gguf_files || [];
+      }
+
+      function valueFor(profile, key, item) {
+        if (profile && item.profiles && item.profiles[profile] && item.profiles[profile][key] !== undefined) return item.profiles[profile][key];
+        if (item.defaults && item.defaults[key] !== undefined) return item.defaults[key];
+        if (initialValues[key] !== undefined) return initialValues[key];
+        return "";
+      }
+
+      function renderGGufFiles() {
+        const model = document.getElementById("model").value;
+        const ggufSelect = document.getElementById("gguf_file");
+        const files = ggufFilesByModel[model] || [];
+        const currentValue = initialValues.model === model ? initialValues.gguf_file : "";
+
+        ggufSelect.innerHTML = "";
+        for (const file of files) {
+          const option = document.createElement("option");
+          option.value = file;
+          option.textContent = file;
+          if (file === currentValue) option.selected = true;
+          ggufSelect.appendChild(option);
+        }
+
+        if (files.length === 0) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No GGUF files found";
+          ggufSelect.appendChild(option);
+        }
+      }
+
+      function renderProfiles() {
+        const model = document.getElementById("model").value;
+        const profileSelect = document.getElementById("profile");
+        const item = byPath[model] || {profiles: {}, notes: []};
+        const profileNames = Object.keys(item.profiles || {});
+        profileSelect.innerHTML = "";
+        for (const name of profileNames) {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          profileSelect.appendChild(option);
+        }
+        const custom = document.createElement("option");
+        custom.value = "custom";
+        custom.textContent = "custom";
+        profileSelect.appendChild(custom);
+        profileSelect.value = initialValues.model === model && initialValues.profile ? initialValues.profile : (item.default_profile || profileNames[0] || "custom");
+        applyProfile();
+      }
+
+      function applyProfile() {
+        const model = document.getElementById("model").value;
+        const profile = document.getElementById("profile").value;
+        const item = byPath[model] || {profiles: {}, notes: []};
+        for (const key of fields) {
+          const input = document.getElementById(key);
+          if (!input) continue;
+          input.value = valueFor(profile, key, item);
+        }
+        const meta = document.getElementById("model-meta");
+        const notes = (item.notes || []).map((note) => `<li>${note}</li>`).join("");
+        const ggufCount = (item.gguf_files || []).length;
+        meta.innerHTML = `<strong>${item.hf_repo || model}</strong><p>${ggufCount} GGUF file(s) found</p>${notes ? `<ul>${notes}</ul>` : ""}`;
+      }
+
+      function syncSaveForm() {
+        const save = document.getElementById("save-profile-form");
+        const runtime = document.getElementById("runtime-form");
+        for (const name of ["model", "gguf_file", ...fields]) {
+          const source = runtime.querySelector(`[name="${name}"]`);
+          const target = save.querySelector(`[name="${name}"]`);
+          if (source && target) target.value = source.value;
+        }
+      }
+
+      document.getElementById("model").addEventListener("change", () => {
+        renderGGufFiles();
+        renderProfiles();
+      });
+      document.getElementById("profile").addEventListener("change", applyProfile);
+      document.getElementById("save-profile-form").addEventListener("submit", syncSaveForm);
+      renderGGufFiles();
+      renderProfiles();
+    </script>
+  </body>
+</html>
