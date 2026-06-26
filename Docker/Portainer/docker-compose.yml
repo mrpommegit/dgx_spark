@@ -16,6 +16,7 @@ services:
       portal.name: "Portainer"
       portal.description: "Docker container management UI"
       portal.port: "${PORTAINER_PORT:-9443}"
+      portal.protocol: "https"
       portal.icon: "settings"
       portal.order: "50"
     networks:

@@ -4,7 +4,6 @@ const titleEl = document.querySelector('#title');
 const refreshLabel = document.querySelector('#refresh-label');
 const ipTable = document.querySelector('#ip-table');
 const tailscaleState = document.querySelector('#tailscale-state');
-const loadingCards = ['ComfyUI', 'Open WebUI', 'LiteLLM API', 'vLLM Manager'];
 
 const iconText = (name) => {
   const words = name.trim().split(/\s+/).slice(0, 2);
@@ -47,19 +46,24 @@ const renderLoadingSystem = () => {
   ipTable.innerHTML = '<tr class="loading-row"><td colspan="4"><span class="loading-line wide"></span></td></tr>';
 };
 
-const renderLoadingApps = () => {
+const renderLoadingApps = (apps = []) => {
   emptyEl.hidden = true;
   appsEl.innerHTML = '';
-  for (const name of loadingCards) {
+  // Use provided apps list or show generic loading placeholders
+  const appsToRender = apps.length > 0 ? apps : [
+    { name: 'Loading apps...', description: 'Discovering containers', port: '', container: '', stats: {} }
+  ];
+
+  for (const app of appsToRender) {
     const card = document.createElement('article');
     card.className = 'card loading-card';
     card.innerHTML = `
       <div class="card-head">
-        <div class="icon loading-pulse" aria-hidden="true">${iconText(name)}</div>
+        <div class="icon loading-pulse" aria-hidden="true">${iconText(app.name)}</div>
         <span class="badge loading-pulse">loading</span>
       </div>
       <div>
-        <h2>${name}</h2>
+        <h2>${app.name}</h2>
         <p><span class="loading-line wide"></span><span class="loading-line short"></span></p>
         <div class="app-stats">
           <span class="stat-pill">CPU<strong>--</strong></span>
@@ -156,15 +160,21 @@ const renderApps = (payload) => {
 
 const load = async () => {
   try {
-    const [appsResponse, systemResponse] = await Promise.all([
-      fetch('/api/apps', { cache: 'no-store' }),
-      fetch('/api/system', { cache: 'no-store' }),
-    ]);
-    if (!appsResponse.ok || !systemResponse.ok) throw new Error('HTTP error');
+    // Fetch apps first to show actual running containers immediately
+    const appsResponse = await fetch('/api/apps', { cache: 'no-store' });
+    if (!appsResponse.ok) throw new Error('HTTP error');
     const appsPayload = await appsResponse.json();
-    const systemPayload = await systemResponse.json();
+
+    // Render apps with current stats (may show zeros on first load)
     renderApps(appsPayload);
-    renderSystem(systemPayload);
+
+    // Then fetch system metrics independently
+    const systemResponse = await fetch('/api/system', { cache: 'no-store' });
+    if (systemResponse.ok) {
+      const systemPayload = await systemResponse.json();
+      renderSystem(systemPayload);
+    }
+
     window.setTimeout(load, (appsPayload.refreshSeconds || 5) * 1000);
   } catch (error) {
     refreshLabel.textContent = 'Disconnected';

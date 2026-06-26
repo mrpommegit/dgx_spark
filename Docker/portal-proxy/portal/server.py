@@ -83,6 +83,11 @@ def app_url(labels: dict[str, str], ports: list[dict[str, object]], handler: Bas
         return explicit
 
     proto, host = request_origin(handler)
+    # Allow label to override protocol for HTTPS services
+    label_proto = labels.get("portal.protocol", "").strip()
+    if label_proto in ("http", "https"):
+        proto = label_proto
+
     path = labels.get("portal.path", "").strip()
     if path:
         return f"{proto}://{handler.headers.get('Host', host)}{path}"
