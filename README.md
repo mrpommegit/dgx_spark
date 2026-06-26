@@ -13,8 +13,8 @@ fine-tuning guidance, and proposed stack decisions.
 
 ## Current Contents
 
-- `dgx_spark_network_mode.py` - Ubuntu tray indicator for switching DGX Spark
-  network/privacy modes using `nftables`.
+- `security/dgx_spark_network_mode.py` - Ubuntu tray indicator for switching
+  DGX Spark network/privacy modes using `nftables`.
 - `Wifi_alwaysON.sh` - NetworkManager helper to keep a configured Wi-Fi
   connection enabled and reconnecting.
 - `security/` - Security-related scripts and configuration proposals.
