@@ -42,6 +42,35 @@ flows create UI session keys in the database.
 
 In the manager, choose a local model and click `Apply and restart vLLM`.
 
+## Langfuse Observability
+
+LiteLLM is configured to send successful and failed proxy calls to Langfuse when
+the `Docker/Langfuse` stack is running on the same Docker network:
+
+```text
+Open WebUI or API client -> LiteLLM -> vLLM/llama.cpp
+                              |
+                              v
+                           Langfuse
+```
+
+Start this stack first, then start Langfuse:
+
+```bash
+cd ../Langfuse
+cp .env.example .env
+docker compose up -d
+```
+
+Langfuse will be available at `http://localhost:3001` and, on this host,
+`http://100.99.111.1:3001` over Tailscale. Keep `LANGFUSE_PUBLIC_KEY` and
+`LANGFUSE_SECRET_KEY` aligned between this stack's `.env` and
+`Docker/Langfuse/.env`.
+
+The Langfuse stack intentionally attaches to the same Docker network as LiteLLM
+(`vllm-litellm_llmnet` by default). LiteLLM sends callback traffic to
+`http://langfuse-web:3000`, so that hostname must resolve on the shared network.
+
 ## Open WebUI and LiteLLM Integration
 
 Open WebUI is configured as an OpenAI-compatible client of LiteLLM:
