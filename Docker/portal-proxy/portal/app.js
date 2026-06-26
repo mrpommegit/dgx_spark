@@ -247,7 +247,12 @@ if (statsRefreshBtn) {
 }
 
 async function loadStatistics() {
-  if (statsLoading) statsLoading.hidden = false;
+  console.log('Loading statistics...');
+
+  if (statsLoading) {
+    statsLoading.hidden = false;
+    console.log('Showing loading indicator');
+  }
   if (statsContent) statsContent.hidden = true;
   if (statsError) statsError.hidden = true;
 
@@ -256,6 +261,7 @@ async function loadStatistics() {
     if (!response.ok) throw new Error('Failed to fetch stats');
 
     const data = await response.json();
+    console.log('Stats data received:', data);
     renderStatistics(data);
 
     // Update timestamp
@@ -276,8 +282,15 @@ async function loadStatistics() {
 }
 
 function renderStatistics(data) {
+  console.log('renderStatistics called with:', data);
+
+  if (!statsContent) {
+    console.error('statsContent element not found!');
+    return;
+  }
+
   if (statsLoading) statsLoading.hidden = true;
-  if (statsContent) statsContent.hidden = false;
+  statsContent.hidden = false;
 
   const models = data.models || [];
 
@@ -287,11 +300,14 @@ function renderStatistics(data) {
   }
 
   statsContent.innerHTML = '';
+  console.log('Creating cards for', models.length, 'models');
 
   for (const model of models) {
     const card = createStatsCard(model);
     statsContent.appendChild(card);
   }
+
+  console.log('Stats rendered successfully');
 }
 
 function createStatsCard(model) {
@@ -329,6 +345,7 @@ function createStatsCard(model) {
     <div class="stats-chart">
       <div class="chart-bar-container">
         <div class="chart-bar" style="height: ${barHeight}%"></div>
+        <span class="chart-bar-label">${toks.toFixed(1)} t/s</span>
       </div>
     </div>
   `;
@@ -341,3 +358,8 @@ function formatNumber(num) {
   if (!num || isNaN(num)) return '--';
   return num.toFixed(1);
 }
+
+// Add debug logging for stats loading
+window.addEventListener('DOMContentLoaded', () => {
+  console.log('Portal loaded - tabs ready');
+});
