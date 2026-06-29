@@ -1,0 +1,118 @@
+services:
+  deepseek-spark-vllm:
+    image: ${DEEPSEEK_SPARK_IMAGE:-ghcr.io/0xsero/deepseek-v4-flash-spark-vllm:cutlass451-g27}
+    container_name: deepseek-spark-vllm
+    restart: unless-stopped
+    entrypoint: ["/opt/deepseek-spark/entrypoint.sh"]
+    environment:
+      HF_HOME: /models/hf-cache
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      MODEL_REPO: ${DEEPSEEK_SPARK_MODEL_REPO:-0xSero/DeepSeek-V4-Flash-180B}
+      MODEL_REVISION: ${DEEPSEEK_SPARK_MODEL_REVISION:-7c360e1cd4a5168099dbc54d16d929bf6df04990}
+      MODEL_DIR: ${DEEPSEEK_SPARK_MODEL_DIR:-}
+      SERVED_MODEL_NAME: ${DEEPSEEK_SPARK_SERVED_MODEL_NAME:-DeepSeek-V4-Flash-Spark}
+      CONTEXT_LENGTH: ${DEEPSEEK_SPARK_CONTEXT_LENGTH:-200000}
+      KV_CACHE_MEMORY_BYTES: ${DEEPSEEK_SPARK_KV_CACHE_MEMORY_BYTES:-6G}
+      KV_CACHE_DTYPE: ${DEEPSEEK_SPARK_KV_CACHE_DTYPE:-fp8}
+      MAX_NUM_BATCHED_TOKENS: ${DEEPSEEK_SPARK_MAX_NUM_BATCHED_TOKENS:-4096}
+      MAX_NUM_SEQS: ${DEEPSEEK_SPARK_MAX_NUM_SEQS:-1}
+      GPU_MEMORY_UTILIZATION: ${DEEPSEEK_SPARK_GPU_MEMORY_UTILIZATION:-0.88}
+      THINKING: ${DEEPSEEK_SPARK_THINKING:-true}
+      SPECULATIVE_CONFIG: ${DEEPSEEK_SPARK_SPECULATIVE_CONFIG:-{"method":"deepseek_mtp","num_speculative_tokens":2}}
+      ENFORCE_EAGER: ${DEEPSEEK_SPARK_ENFORCE_EAGER:-0}
+      PORT: 8000
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+      VLLM_TRITON_MLA_SPARSE: "1"
+      VLLM_TRITON_MLA_SPARSE_ALLOW_CUDAGRAPH: "1"
+      VLLM_ENABLE_DEEPSEEK_V4_MHC_WARMUP: "1"
+      VLLM_ENABLE_DEEPSEEK_V4_SPARSE_MLA_WARMUP: "0"
+      FLASHINFER_DISABLE_VERSION_CHECK: "1"
+      TILELANG_CLEANUP_TEMP_FILES: "1"
+      DG_JIT_USE_NVRTC: "0"
+      DG_JIT_NVCC_COMPILER: /usr/local/cuda/bin/nvcc
+      NCCL_IB_DISABLE: "1"
+      NCCL_DEBUG: WARN
+      K160_DISABLE_CUTEDSL: "0"
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    volumes:
+      - ${DEEPSEEK_SPARK_HF_HOME:-/home/YOUR_USER/LLMs/hf-cache}:/models/hf-cache:rw
+      - ./runtime:/opt/deepseek-spark:ro
+    ports:
+      - "${DEEPSEEK_SPARK_PORT:-8003}:8000"
+    labels:
+      portal.enable: "true"
+      portal.name: "DeepSeek Spark vLLM"
+      portal.description: "Custom DeepSeek V4 Flash Spark K160 runtime"
+      portal.port: "${DEEPSEEK_SPARK_PORT:-8003}"
+      portal.icon: "brain"
+      portal.order: "26"
+    gpus: all
+    ipc: host
+    shm_size: "2g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    networks:
+      - llmnet
+
+  deepseek-spark-mini-vllm:
+    image: ${DEEPSEEK_SPARK_IMAGE:-ghcr.io/0xsero/deepseek-v4-flash-spark-vllm:cutlass451-g27}
+    container_name: deepseek-spark-mini-vllm
+    profiles: ["mini"]
+    restart: unless-stopped
+    entrypoint: ["/opt/deepseek-spark/entrypoint.sh"]
+    environment:
+      HF_HOME: /models/hf-cache
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      MODEL_REPO: ${DEEPSEEK_SPARK_MINI_MODEL_REPO:-0xSero/DeepSeek-V4-Flash-162B}
+      MODEL_REVISION: ${DEEPSEEK_SPARK_MINI_MODEL_REVISION:-d663e8fb16809f6619000648b187b257249ed824}
+      MODEL_DIR: ${DEEPSEEK_SPARK_MINI_MODEL_DIR:-}
+      SERVED_MODEL_NAME: ${DEEPSEEK_SPARK_MINI_SERVED_MODEL_NAME:-DeepSeek-V4-Flash-Spark-Mini}
+      CONTEXT_LENGTH: ${DEEPSEEK_SPARK_MINI_CONTEXT_LENGTH:-200000}
+      KV_CACHE_MEMORY_BYTES: ${DEEPSEEK_SPARK_MINI_KV_CACHE_MEMORY_BYTES:-14G}
+      KV_CACHE_DTYPE: fp8
+      MAX_NUM_BATCHED_TOKENS: ${DEEPSEEK_SPARK_MINI_MAX_NUM_BATCHED_TOKENS:-8192}
+      MAX_NUM_SEQS: ${DEEPSEEK_SPARK_MINI_MAX_NUM_SEQS:-1}
+      GPU_MEMORY_UTILIZATION: ${DEEPSEEK_SPARK_MINI_GPU_MEMORY_UTILIZATION:-0.88}
+      THINKING: "true"
+      SPECULATIVE_CONFIG: ""
+      ENFORCE_EAGER: "0"
+      PORT: 8000
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+      VLLM_TRITON_MLA_SPARSE: "1"
+      VLLM_TRITON_MLA_SPARSE_ALLOW_CUDAGRAPH: "1"
+      VLLM_ENABLE_DEEPSEEK_V4_MHC_WARMUP: "1"
+      VLLM_ENABLE_DEEPSEEK_V4_SPARSE_MLA_WARMUP: "0"
+      FLASHINFER_DISABLE_VERSION_CHECK: "1"
+      TILELANG_CLEANUP_TEMP_FILES: "1"
+      DG_JIT_USE_NVRTC: "0"
+      DG_JIT_NVCC_COMPILER: /usr/local/cuda/bin/nvcc
+      NCCL_IB_DISABLE: "1"
+      NCCL_DEBUG: WARN
+      K160_DISABLE_CUTEDSL: "0"
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    volumes:
+      - ${DEEPSEEK_SPARK_HF_HOME:-/home/YOUR_USER/LLMs/hf-cache}:/models/hf-cache:rw
+      - ./runtime:/opt/deepseek-spark:ro
+    ports:
+      - "${DEEPSEEK_SPARK_MINI_PORT:-8004}:8000"
+    labels:
+      portal.enable: "true"
+      portal.name: "DeepSeek Spark Mini"
+      portal.description: "Custom DeepSeek V4 Flash Spark K144 runtime"
+      portal.port: "${DEEPSEEK_SPARK_MINI_PORT:-8004}"
+      portal.icon: "brain"
+      portal.order: "27"
+    gpus: all
+    ipc: host
+    shm_size: "2g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    networks:
+      - llmnet
+
+networks:
+  llmnet:
+    external: true
+    name: ${LITELLM_NETWORK:-vllm-litellm_llmnet}
