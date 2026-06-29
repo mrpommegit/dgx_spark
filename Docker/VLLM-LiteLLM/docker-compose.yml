@@ -73,6 +73,83 @@ services:
     networks:
       - llmnet
 
+  aeon-vllm:
+    image: ${AEON_VLLM_IMAGE:-ghcr.io/aeon-7/aeon-vllm-ultimate:latest}
+    container_name: aeon-vllm
+    restart: unless-stopped
+    entrypoint: ["vllm"]
+    command:
+      - serve
+      - /models/aeon-ultimate
+      - --served-model-name
+      - aeon-ultimate
+      - qwen36-ultimate
+      - aeon-fast
+      - aeon-deep
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --quantization
+      - compressed-tensors
+      - --mamba-cache-dtype
+      - float32
+      - --max-model-len
+      - "${AEON_MAX_MODEL_LEN:-256000}"
+      - --max-num-seqs
+      - "${AEON_MAX_NUM_SEQS:-64}"
+      - --max-num-batched-tokens
+      - "${AEON_MAX_NUM_BATCHED_TOKENS:-16384}"
+      - --gpu-memory-utilization
+      - "${AEON_GPU_MEMORY_UTILIZATION:-0.75}"
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --load-format
+      - safetensors
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --attention-backend
+      - flash_attn
+      - --limit-mm-per-prompt
+      - "{\"image\":4,\"video\":2}"
+      - --mm-encoder-tp-mode
+      - data
+      - --mm-processor-cache-type
+      - shm
+      - --speculative-config
+      - "{\"method\":\"dflash\",\"model\":\"/models/dflash-drafter\",\"num_speculative_tokens\":10}"
+    environment:
+      TORCH_CUDA_ARCH_LIST: 12.1a
+      ENABLE_NVFP4_SM100: "0"
+      VLLM_USE_FLASHINFER_MOE_FP4: "0"
+      VLLM_USE_FLASHINFER_SAMPLER: "1"
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      HF_HOME: /models/hf-cache
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-${HUGGINGFACE_TOKEN:-}}
+    volumes:
+      - ${AEON_MODEL_DIR}:/models/aeon-ultimate:ro
+      - ${AEON_DFLASH_DIR}:/models/dflash-drafter:ro
+      - ${LLM_DIR}:/models/hf-cache:rw
+    ports:
+      - "${AEON_VLLM_PORT:-8002}:8000"
+    labels:
+      portal.enable: "true"
+      portal.name: "AEON vLLM"
+      portal.description: "Qwen3.6 27B AEON Ultimate NVFP4 with DFlash"
+      portal.port: "${AEON_VLLM_PORT:-8002}"
+      portal.icon: "brain"
+      portal.order: "25"
+    gpus: all
+    ipc: host
+    shm_size: "2g"
+    networks:
+      - llmnet
+
   manager:
     build:
       context: ./manager
