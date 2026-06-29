@@ -4,6 +4,31 @@ model_list:
       model: openai/local-vllm
       api_base: http://vllm-runtime:8000/v1
       api_key: EMPTY
+  - model_name: aeon-ultimate
+    litellm_params:
+      model: openai/aeon-ultimate
+      api_base: http://aeon-vllm:8000/v1
+      api_key: EMPTY
+  - model_name: qwen36-ultimate
+    litellm_params:
+      model: openai/qwen36-ultimate
+      api_base: http://aeon-vllm:8000/v1
+      api_key: EMPTY
+  - model_name: aeon-fast
+    litellm_params:
+      model: openai/aeon-fast
+      api_base: http://aeon-vllm:8000/v1
+      api_key: EMPTY
+  - model_name: aeon-deep
+    litellm_params:
+      model: openai/aeon-deep
+      api_base: http://aeon-vllm:8000/v1
+      api_key: EMPTY
+  - model_name: deepseek-spark
+    litellm_params:
+      model: openai/DeepSeek-V4-Flash-Spark-Mini
+      api_base: http://deepseek-spark-mini-vllm:8000/v1
+      api_key: EMPTY
   - model_name: local-llamacpp
     litellm_params:
       model: openai/local-llamacpp

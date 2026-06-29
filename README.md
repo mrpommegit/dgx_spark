@@ -23,6 +23,8 @@ fine-tuning guidance, and proposed stack decisions.
   DGX Spark, with a host install fallback.
 - `Docker/VLLM-LiteLLM/` - Docker Compose stack for vLLM, LiteLLM, Open WebUI,
   and a small manager UI for switching local models and runtime settings.
+- `Docker/DeepSeek-Spark/` - Dedicated custom DeepSeek V4 Flash Spark vLLM
+  stack using the 0xSero runtime image, wired into LiteLLM/Open WebUI.
 - `Docker/LlamaCPP/` - GGUF model inference stack with llama.cpp server, manager UI,
   and LiteLLM integration for CPU/GPU hybrid inference.
 - `Docker/portal-proxy/` - Dynamic portal on port 80 that lists running
@@ -112,6 +114,22 @@ Set `LLM_DIR` in `.env` to the host directory containing downloaded Hugging Face
 models. The manager UI is exposed on `http://localhost:8088`, Open WebUI on
 `http://localhost:3000`, and the LiteLLM OpenAI-compatible API on
 `http://localhost:4000/v1`.
+
+### DeepSeek Spark Dedicated vLLM
+
+Start `Docker/VLLM-LiteLLM` first so the shared LiteLLM Docker network exists,
+then from `Docker/DeepSeek-Spark/`:
+
+```bash
+cp .env.example .env
+docker compose --profile mini up -d deepseek-spark-mini-vllm
+```
+
+Set `DEEPSEEK_SPARK_HF_HOME` to the Hugging Face cache that contains the
+`0xSero/DeepSeek-V4-Flash-162B` Mini snapshot. The single-node default is the
+Mini/K144 runtime on host port 8004. LiteLLM exposes it to Open WebUI as
+`deepseek-spark`, while the larger 180B/K160 runtime remains available in the
+compose file for hosts that can support it.
 
 ### llama.cpp + Manager UI
 

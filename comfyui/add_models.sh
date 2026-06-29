@@ -18,6 +18,7 @@ Presets:
   wan22-14b-i2v         Wan 2.2 14B image-to-video, fp8 high/low noise models.
   flux-dev-fp8          FLUX.1 dev single-file fp8 checkpoint.
   flux-schnell-fp8      FLUX.1 schnell single-file fp8 checkpoint.
+  flux2-small-decoder   FLUX.2 full encoder with small decoder VAE.
   sd15                  Stable Diffusion 1.5 checkpoint.
 
 Generic Hugging Face download:
@@ -59,6 +60,7 @@ Available presets:
   wan22-14b-i2v     ~36 GB: text encoder fp8, Wan 2.1 VAE, 14B I2V high/low fp8 models.
   flux-dev-fp8      ~17 GB: easy single-file checkpoint for FLUX.1 dev.
   flux-schnell-fp8  ~17 GB: easy single-file checkpoint for FLUX.1 schnell.
+  flux2-small-decoder ~250 MB: FLUX.2 full encoder with small decoder VAE.
   sd15              ~4 GB: Stable Diffusion 1.5 checkpoint.
 PRESETS
 }
@@ -127,6 +129,37 @@ preset_wan22_14b_i2v() {
   download_hf Comfy-Org/Wan_2.2_ComfyUI_Repackaged split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors diffusion_models
 }
 
+download_hf_cli() {
+  local repo="$1"
+  local repo_path="$2"
+  local comfy_folder="$3"
+  local output_name="${4:-$(basename "${repo_path}")}"
+  local target_dir target downloaded
+
+  prepare_dirs
+  target_dir="${DATA_DIR}/models/${comfy_folder}"
+  target="${target_dir}/${output_name}"
+
+  if [[ -s "${target}" ]]; then
+    echo "Already exists: ${target}"
+    return
+  fi
+
+  if ! command -v hf >/dev/null 2>&1; then
+    echo "hf CLI is required for this Xet-backed Hugging Face file." >&2
+    exit 1
+  fi
+
+  echo "Downloading ${repo}/${repo_path}"
+  echo "  -> ${target}"
+  hf download "${repo}" "${repo_path}" --revision "${HF_REVISION}" --local-dir "${target_dir}"
+
+  downloaded="${target_dir}/$(basename "${repo_path}")"
+  if [[ "${downloaded}" != "${target}" ]]; then
+    mv "${downloaded}" "${target}"
+  fi
+}
+
 command="${1:-}"
 case "${command}" in
   list) list_presets ;;
@@ -135,6 +168,7 @@ case "${command}" in
   wan22-14b-i2v) preset_wan22_14b_i2v ;;
   flux-dev-fp8) download_hf Comfy-Org/flux1-dev flux1-dev-fp8.safetensors checkpoints ;;
   flux-schnell-fp8) download_hf Comfy-Org/flux1-schnell flux1-schnell-fp8.safetensors checkpoints ;;
+  flux2-small-decoder) download_hf_cli black-forest-labs/FLUX.2-small-decoder full_encoder_small_decoder.safetensors vae ;;
   sd15) download_hf runwayml/stable-diffusion-v1-5 v1-5-pruned-emaonly.safetensors checkpoints ;;
   hf)
     if [[ $# -lt 4 || $# -gt 5 ]]; then

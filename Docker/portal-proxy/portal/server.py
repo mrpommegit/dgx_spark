@@ -47,6 +47,24 @@ def decode_chunked(body: bytes) -> bytes:
     return bytes(decoded)
 
 
+def decode_docker_multiplexed(body: bytes) -> bytes:
+    decoded = bytearray()
+    index = 0
+    while index + 8 <= len(body):
+        stream_type = body[index]
+        if stream_type not in (1, 2) or body[index + 1:index + 4] != b"\x00\x00\x00":
+            return body
+        frame_size = int.from_bytes(body[index + 4:index + 8], "big")
+        index += 8
+        if index + frame_size > len(body):
+            return body
+        decoded.extend(body[index:index + frame_size])
+        index += frame_size
+    if index == len(body) and decoded:
+        return bytes(decoded)
+    return body
+
+
 def docker_get(path: str, params: dict[str, str] | None = None) -> object:
     query = f"?{urlencode(params)}" if params else ""
     request = (
@@ -566,9 +584,77 @@ def litellm_stats() -> dict[str, object]:
             if b"transfer-encoding: chunked" in header.lower():
                 body = decode_chunked(body)
 
+            body = decode_docker_multiplexed(body)
             return body.decode("utf-8", errors="replace")
         except Exception:
             return ""
+
+    def collect_vllm_metrics(container_name: str, engine_prefix: str, series_prefix: str) -> None:
+        metrics_text = docker_exec(container_name, ["curl", "-s", "http://localhost:8000/metrics"])
+        if not metrics_text:
+            return
+
+        by_model: dict[str, dict[str, object]] = {}
+        for line in metrics_text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parsed = parse_prometheus_metric(line)
+            if not parsed:
+                continue
+            name, labels, value = parsed
+            model_name = labels.get("model_name")
+            engine_id = labels.get("engine", "0")
+            if not model_name:
+                continue
+
+            series_id = f"{series_prefix}:{engine_id}:{model_name}"
+            item = by_model.setdefault(
+                series_id,
+                {
+                    "series_id": series_id,
+                    "engine_key": f"{series_prefix}:{engine_id}",
+                    "engine_name": f"{engine_prefix} {engine_id}",
+                    "model_name": model_name,
+                    "type": "vllm",
+                    "_prompt_tokens": 0.0,
+                    "_generation_tokens": 0.0,
+                    "_time_e2e_sum": 0.0,
+                    "_time_queue_sum": 0.0,
+                    "_request_count": 0.0,
+                },
+            )
+
+            if name == "vllm:prompt_tokens_total":
+                item["_prompt_tokens"] = value
+            elif name == "vllm:generation_tokens_total":
+                item["_generation_tokens"] = value
+            elif name == "vllm:e2e_request_latency_seconds_sum":
+                item["_time_e2e_sum"] = value
+            elif name == "vllm:request_queue_time_seconds_sum":
+                item["_time_queue_sum"] = value
+            elif name == "vllm:e2e_request_latency_seconds_count":
+                item["_request_count"] = value
+
+        for series_id, item in by_model.items():
+            request_count = float(item.get("_request_count", 0) or 0)
+            time_e2e_sum = float(item.get("_time_e2e_sum", 0) or 0)
+            prompt_tokens = float(item.get("_prompt_tokens", 0) or 0)
+            generation_tokens = float(item.get("_generation_tokens", 0) or 0)
+            time_queue_sum = float(item.get("_time_queue_sum", 0) or 0)
+            prompt_tokens_per_second = round(prompt_tokens / time_e2e_sum, 2) if time_e2e_sum > 0 else 0
+            tokens_per_second = round(generation_tokens / time_e2e_sum, 2) if time_e2e_sum > 0 else 0
+            prompt_time_to_first_token = round(time_queue_sum / request_count, 3) if request_count > 0 and time_queue_sum > 0 else 0
+            models[series_id] = {
+                "series_id": series_id,
+                "engine_key": item["engine_key"],
+                "engine_name": item["engine_name"],
+                "model_name": item["model_name"],
+                "type": "vllm",
+                "prompt_tokens_per_second": prompt_tokens_per_second,
+                "prompt_time_to_first_token": prompt_time_to_first_token,
+                "tokens_per_second": tokens_per_second,
+            }
 
     # Fetch vLLM metrics via Docker exec API. vLLM exposes engine/model labels.
     try:
@@ -639,6 +725,85 @@ def litellm_stats() -> dict[str, object]:
 
     except Exception:
         pass
+
+    # Fetch AEON dedicated vLLM metrics via Docker exec API.
+    try:
+        metrics_text = docker_exec("aeon-vllm", ["curl", "-s", "http://localhost:8000/metrics"])
+        if metrics_text:
+            by_model: dict[str, dict[str, object]] = {}
+
+            for line in metrics_text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parsed = parse_prometheus_metric(line)
+                if not parsed:
+                    continue
+                name, labels, value = parsed
+                model_name = labels.get("model_name")
+                engine_id = labels.get("engine", "0")
+                if not model_name:
+                    continue
+
+                series_id = f"aeon-vllm:{engine_id}:{model_name}"
+                item = by_model.setdefault(
+                    series_id,
+                    {
+                        "series_id": series_id,
+                        "engine_key": f"aeon-vllm:{engine_id}",
+                        "engine_name": f"AEON vLLM engine {engine_id}",
+                        "model_name": model_name,
+                        "type": "vllm",
+                        "_prompt_tokens": 0.0,
+                        "_generation_tokens": 0.0,
+                        "_time_e2e_sum": 0.0,
+                        "_time_queue_sum": 0.0,
+                        "_request_count": 0.0,
+                    },
+                )
+
+                if name == "vllm:prompt_tokens_total":
+                    item["_prompt_tokens"] = value
+                elif name == "vllm:generation_tokens_total":
+                    item["_generation_tokens"] = value
+                elif name == "vllm:e2e_request_latency_seconds_sum":
+                    item["_time_e2e_sum"] = value
+                elif name == "vllm:request_queue_time_seconds_sum":
+                    item["_time_queue_sum"] = value
+                elif name == "vllm:e2e_request_latency_seconds_count":
+                    item["_request_count"] = value
+
+            for series_id, item in by_model.items():
+                request_count = float(item.get("_request_count", 0) or 0)
+                time_e2e_sum = float(item.get("_time_e2e_sum", 0) or 0)
+                if request_count <= 0 or time_e2e_sum <= 0:
+                    continue
+
+                prompt_tokens = float(item.get("_prompt_tokens", 0) or 0)
+                generation_tokens = float(item.get("_generation_tokens", 0) or 0)
+                time_queue_sum = float(item.get("_time_queue_sum", 0) or 0)
+                models[series_id] = {
+                    "series_id": series_id,
+                    "engine_key": item["engine_key"],
+                    "engine_name": item["engine_name"],
+                    "model_name": item["model_name"],
+                    "type": "vllm",
+                    "prompt_tokens_per_second": round(prompt_tokens / time_e2e_sum, 2),
+                    "prompt_time_to_first_token": round(time_queue_sum / request_count, 3) if time_queue_sum > 0 else 0,
+                    "tokens_per_second": round(generation_tokens / time_e2e_sum, 2),
+                }
+
+    except Exception:
+        pass
+
+    for container_name, engine_prefix, series_prefix in (
+        ("deepseek-spark-vllm", "DeepSeek Spark vLLM engine", "deepseek-spark-vllm"),
+        ("deepseek-spark-mini-vllm", "DeepSeek Spark Mini vLLM engine", "deepseek-spark-mini-vllm"),
+    ):
+        try:
+            collect_vllm_metrics(container_name, engine_prefix, series_prefix)
+        except Exception:
+            pass
 
     # Fetch llama.cpp metrics via Docker exec API. llama.cpp exposes one runtime model per process.
     try:
