@@ -63,11 +63,12 @@
         </div>
       </section>
 
-      <section id="apps" class="grid" aria-live="polite"></section>
-    <section id="empty" class="empty" hidden>
-      <h2>No published apps are running</h2>
-      <p>Start containers with <code>portal.enable=true</code> labels and they will appear here automatically.</p>
-    </section>
+        <section id="apps" class="grid" aria-live="polite"></section>
+        <section id="empty" class="empty" hidden>
+          <h2>No published apps are running</h2>
+          <p>Start containers with <code>portal.enable=true</code> labels and they will appear here automatically.</p>
+        </section>
+      </section>
     </section>
 
     <section id="tab-stats" class="tab-content">
@@ -75,6 +76,11 @@
         <header class="stats-header">
           <h2>LiteLLM Model Statistics</h2>
           <div class="stats-meta">
+            <div class="range-toggle" role="group" aria-label="Statistics range">
+              <button class="range-btn active" data-range="hour" type="button">Last hour</button>
+              <button class="range-btn" data-range="day" type="button">24 hours</button>
+              <button class="range-btn" data-range="7days" type="button">7 days</button>
+            </div>
             <span class="stats-refresh">Last updated: <time id="stats-time">--</time></span>
             <button id="stats-refresh-btn" class="refresh-btn">Refresh</button>
           </div>
@@ -91,9 +97,6 @@
 
         <div id="stats-content" class="stats-grid" hidden></div>
       </section>
-    </section>
-      <h2>No published apps are running</h2>
-      <p>Start containers with <code>portal.enable=true</code> labels and they will appear here automatically.</p>
     </section>
   </main>
   <footer class="footer">

@@ -22,6 +22,33 @@ docker compose up -d
 The service binds `${PORTAL_PORT:-80}` on the host and serves the UI from port
 `8080` inside the container.
 
+## Statistics
+
+The Statistics tab tracks local LLM runtime performance for vLLM and llama.cpp.
+It shows one full-width card per inference engine and plots a line per model so
+model changes on the same engine remain visible separately.
+
+The portal samples runtime metrics in the background, so history is collected
+even when the browser tab is closed. Samples are stored in a small JSON file at
+`/tmp/dgx-portal-litellm-history.json` inside the portal container by default.
+Every write prunes samples older than 7 days.
+
+Available ranges in the UI:
+
+- Last hour
+- 24 hours
+- 7 days
+
+Relevant environment variables:
+
+- `PORTAL_STATS_SAMPLE_SECONDS`: background sampling interval, default `60`.
+- `PORTAL_STATS_HISTORY_PATH`: JSON history path, default
+  `/tmp/dgx-portal-litellm-history.json`.
+
+vLLM metrics use the runtime `engine` and `model_name` labels. llama.cpp exposes
+one model per runtime process, so the portal reads the active model name from
+the container `--model` command.
+
 ## Publishing an App
 
 Add labels to any Docker Compose service that exposes a web UI:
