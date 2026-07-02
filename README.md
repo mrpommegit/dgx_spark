@@ -51,6 +51,18 @@ Use these folders to keep future work easy to review:
 
 ## Quick Starts
 
+### Network Privacy Switch
+
+Install the Ubuntu tray indicator and desktop autostart entry:
+
+```bash
+./security/install.sh
+```
+
+The tray menu can switch between strict localhost-only mode, LAN-only Internet
+OFF mode, and full connectivity. Mode changes prompt for administrator approval
+through `pkexec` and apply `nftables` firewall rules.
+
 ### Tailscale
 
 Configure the Tailscale values in `.env`, then run:
