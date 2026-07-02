@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONNECTION_NAME="Mobile@FSMA"
+CONNECTION_NAME="MOBILE@FSMA"
 WIFI_INTERFACE="wlP9s9"
 
 if ! command -v nmcli >/dev/null 2>&1; then
